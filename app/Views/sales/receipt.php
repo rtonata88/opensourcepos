@@ -42,6 +42,19 @@ if (isset($error_message)) {
     </script>
 <?php endif; ?>
 
+<?php if ($print_after_sale): ?>
+    <style>
+        /* Auto-print: skip the on-screen receipt preview, send straight to the printer
+           and return to the register. The receipt still prints via @media print. */
+        @media screen {
+            #receipt_wrapper,
+            #control_buttons {
+                display: none !important;
+            }
+        }
+    </style>
+<?php endif; ?>
+
 <?= view('partial/print_receipt', ['print_after_sale' => $print_after_sale, 'selected_printer' => 'receipt_printer']) ?>
 
 <div class="print_hide" id="control_buttons" style="text-align: right;">
