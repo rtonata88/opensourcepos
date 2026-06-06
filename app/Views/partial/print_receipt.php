@@ -57,13 +57,25 @@
 
     <?php if ($print_after_sale) { ?>
         $(window).on('load', (function() {
+            // Return to the register exactly once, as soon as printing finishes.
+            // Leaving the page on 'afterprint' (rather than a fixed timer) prevents
+            // Chrome's --kiosk-printing from re-firing the print in an endless loop.
+            var returned = false;
+            var goBack = function() {
+                if (returned) return;
+                returned = true;
+                window.location.href = "<?= site_url('sales') ?>";
+            };
+
+            window.onafterprint = goBack;
+
+            // Fallback in case 'afterprint' never fires. Use the configured delay
+            // but never less than 2s, so we never navigate away mid-print (the
+            // default delay is 0, which races the async kiosk print).
+            setTimeout(goBack, <?= max(2, (int) $config['print_delay_autoreturn']) * 1000 ?>);
+
             // Executes when complete page is fully loaded, including all frames, objects and images
             printdoc();
-
-            // After a delay, return to sales view
-            setTimeout(function() {
-                window.location.href = "<?= site_url('sales') ?>";
-            }, <?= $config['print_delay_autoreturn'] * 1000 ?>);
         }));
 
     <?php } ?>
