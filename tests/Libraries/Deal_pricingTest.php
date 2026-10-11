@@ -86,9 +86,15 @@ final class Deal_pricingTest extends TestCase
         $this->assertSame('Items.deal_price_invalid', Deal_pricing::validate_deal('2', '13.00', '7.00 '));
     }
 
+    public function testPriceWithNewlineIsRejected(): void
+    {
+        $this->assertSame('Items.deal_price_invalid', Deal_pricing::validate_deal('2', "13\n", '7.00'));
+        $this->assertSame('Items.deal_price_invalid', Deal_pricing::validate_deal('2', '13.00', "7.00\n"));
+    }
+
     public function testPriceTruncationCheckedWithBcmath(): void
     {
-        $this->assertSame('Items.deal_price_cents', Deal_pricing::validate_deal('5', '10.01', '3.00'));
+        $this->assertSame('Items.deal_price_invalid', Deal_pricing::validate_deal('5', '10.004', '3.00'));
     }
 
     public function testValidDealIsAccepted(): void

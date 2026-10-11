@@ -27,9 +27,9 @@ class Deal_pricing
             return 'Items.deal_quantity_invalid';
         }
 
-        if (! preg_match('/^\d+(\.\d{1,2})?$/', $price) || ! preg_match('/^\d+(\.\d{1,2})?$/', $unit_price)
-                                                        || bccomp($price, '0', 2) <= 0
-                                                        || bccomp($price, bcmul($quantity, $unit_price, 2), 2) >= 0) {
+        if (! preg_match('/^\d+(\.\d{1,2})?\z/', $price) || ! preg_match('/^\d+(\.\d{1,2})?\z/', $unit_price)
+                                                         || bccomp($price, '0', 2) <= 0
+                                                         || bccomp($price, bcmul($quantity, $unit_price, 2), 2) >= 0) {
             return 'Items.deal_price_invalid';
         }
 
