@@ -67,8 +67,8 @@ ALTER TABLE `ospos_sales` ADD COLUMN `return_approved_by` INT(10) NULL DEFAULT N
 
 ### 3. When approval is required
 
-A pure helper, `Sale_lib::requires_return_approval(array $cart, int $employee_id): bool`,
-returns true when:
+A new library `App\Libraries\Return_approval` (unit-testable with a mocked `Employee`)
+provides `requires_approval(array $cart, int $employee_id): bool`, which returns true when:
 
 - the cart has at least one line with `quantity < 0`, **and**
 - the employee does **not** hold `sales_returns`.
@@ -81,11 +81,14 @@ A suspended sale with return lines needs approval when later completed.
 
 At the start of `Sales::postComplete`, before any `save_value()` call:
 
-1. If `requires_return_approval()` is false → proceed as today, approver `null`.
+1. If `Return_approval::requires_approval()` is false → proceed as today, approver `null`.
 2. Otherwise read `approver_username` / `approver_password` from the POST body.
-3. `Employee::verify_return_approver(string $username, string $password): ?int`
-   - uses the existing `check_password()` (does not touch the session),
-   - loads the employee, confirms not deleted and holds `sales_returns`,
+3. `Return_approval::verify_approver(string $username, string $password): ?int`
+   - trims the username; empty username or password fails immediately,
+   - uses a new `Employee::verify_credentials()` (returns the person_id; does not touch
+     the session; `check_password()` is refactored to reuse it), which only matches
+     non-deleted employees,
+   - confirms the approver holds `sales_returns`,
    - returns the approver's `person_id`, or `null` on any failure.
 4. On `null`: do not save. Re-render the register with error
    `Sales.return_approval_required` (no credentials supplied) or
@@ -94,8 +97,7 @@ At the start of `Sales::postComplete`, before any `save_value()` call:
 5. On success: pass the approver id into every `save_value()` call in `postComplete`.
 
 Because approval and completion happen in one request, the cart cannot change between
-approval and save. This also covers the Alt+7 shortcut (`window.location` to
-`sales/complete`) and any client-side bypass: without valid credentials in the request
+approval and save. It also covers any client-side bypass: without valid credentials in the request
 the server refuses.
 
 The approver's password is never stored or logged.
@@ -104,7 +106,7 @@ The approver's password is never stored or logged.
 
 `app/Views/sales/register.php`:
 
-- Controller passes `$return_approval_needed` (result of `requires_return_approval()`
+- Controller passes `$return_approval_needed` (result of `requires_approval()`
   for the current cart and logged-in employee).
 - When true, the **Complete** click handlers (`#finish_sale_button`,
   `#finish_invoice_quote_button`) open a Bootstrap 3 modal instead of submitting:
@@ -113,8 +115,6 @@ The approver's password is never stored or logged.
   in `#buttons_form` and submits it. Password field uses `autocomplete="off"`.
 - If the server returns `return_approval_invalid`, the register shows the error and
   the modal re-opens on next Complete.
-- Alt+7 is changed to click `#finish_sale_button` instead of navigating directly, so it
-  follows the same modal path.
 
 ### 6. Reporting
 
@@ -125,7 +125,7 @@ Detailed Sales report gets an **"Approved by"** summary column:
 - `Reports\Detailed_sales::getDataColumns()` adds `['approver_name' => lang('Reports.approved_by')]`
   after `employee_name`.
 - `Reports::detailed_sales()` and `getGet_detailed_sales_row()` include `approver_name`
-  in each summary row (escaped).
+  in each summary row, handled the same way as `employee_name`.
 
 ### 7. Language strings (`en`)
 
@@ -140,17 +140,18 @@ Detailed Sales report gets an **"Approved by"** summary column:
 
 PHPUnit (needs the test MySQL database):
 
-- `requires_return_approval()`:
+- `Return_approval::cart_has_returns()` / `requires_approval()`:
   - cart without negative lines → false;
   - negative line + employee without permission → true;
   - negative line + employee with permission → false;
   - zero-quantity line only → false.
-- `verify_return_approver()`:
+- `Return_approval::verify_approver()`:
   - valid supervisor with permission → their id;
   - wrong password → null;
   - valid credentials but no `sales_returns` → null;
   - deleted employee → null.
-- Migration runs up and down cleanly.
+- Migration runs up and down cleanly (checked manually; no DB-backed PHPUnit tests,
+  because the `tests` DB group points at the live `ospos` database).
 
 Manual check on the register:
 
@@ -158,5 +159,6 @@ Manual check on the register:
    cart intact → correct supervisor → sale completes, stock increases, cashier still logged in.
 2. Exchange in Sale mode (one negative, one positive line) → modal appears.
 3. Admin (has permission) completes a return → no modal, approver empty.
-4. Alt+7 with a return in the cart → modal appears (not a bypass).
+4. Submitting the Complete form from the browser console with a return in the cart →
+   refused by the server (not a bypass).
 5. Detailed Sales report shows "Approved by" for the approved sale.
