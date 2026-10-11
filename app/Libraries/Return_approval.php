@@ -63,12 +63,39 @@ class Return_approval
     }
 
     /**
-     * True when suspending would move money for a return without approval.
+     * True when any stored-value account payment (gift card, rewards) is negative,
+     * meaning the sale would credit the account.
+     *
+     * @param array $account_payment_types payment type labels, matched as substrings
+     */
+    public static function account_payments_pay_out(array $payments, array $account_payment_types): bool
+    {
+        foreach ($payments as $payment) {
+            if ((float) $payment['payment_amount'] >= 0) {
+                continue;
+            }
+
+            foreach ($account_payment_types as $type) {
+                if (str_contains($payment['payment_type'], $type)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * True when suspending would credit a stored-value account without approval:
+     * an account payment exists and either the cart has returns or an account
+     * payment is negative (e.g. overpaying a sale into a gift card), and the
+     * employee may not approve returns.
      */
     public function requires_approval_to_suspend(array $cart, array $payments, int $employee_id, array $account_payment_types): bool
     {
         return self::payments_credit_accounts($payments, $account_payment_types)
-            && $this->requires_approval($cart, $employee_id);
+            && (self::cart_has_returns($cart) || self::account_payments_pay_out($payments, $account_payment_types))
+            && ! $this->employee->has_grant(self::PERMISSION, $employee_id);
     }
 
     /**

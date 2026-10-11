@@ -163,8 +163,11 @@ final class Return_approvalTest extends TestCase
 
     public function testDiscountAbovePriceIsAReturn(): void
     {
-        // 150% discount on a 10.00 item: total -5.00
-        $cart = [1 => ['item_id' => 1, 'line' => 1, 'quantity' => 1, 'discounted_total' => '-5.00']];
+        // 150% discount (PERCENT = 0) on a 10.00 item: total -5.00
+        $cart = [1 => [
+            'item_id'  => 1, 'line' => 1, 'quantity' => 1, 'price' => '10.00',
+            'discount' => '150', 'discount_type' => 0, 'discounted_total' => '-5.00',
+        ]];
 
         $this->assertTrue(Return_approval::cart_has_returns($cart));
     }
@@ -228,5 +231,59 @@ final class Return_approvalTest extends TestCase
         $approval = new Return_approval($employee);
 
         $this->assertFalse($approval->requires_approval_to_suspend($this->cart([1]), $payments, 7, ['Gift Card', 'Rewards']));
+    }
+
+    public function testSuspendNeedsApprovalForOverpaymentToGiftcard(): void
+    {
+        $employee = $this->createMock(Employee::class);
+        $employee->method('has_grant')->with('sales_returns', 7)->willReturn(false);
+        $payments = ['Gift Card:1001' => ['payment_type' => 'Gift Card:1001', 'payment_amount' => '-50.00']];
+
+        $approval = new Return_approval($employee);
+
+        $this->assertTrue($approval->requires_approval_to_suspend($this->cart([1]), $payments, 7, ['Gift Card', 'Rewards']));
+    }
+
+    public function testSuspendWithPositiveGiftcardPaymentAndNoReturnsNeedsNoApprovalEvenWithoutGrant(): void
+    {
+        $employee = $this->createMock(Employee::class);
+        $employee->expects($this->never())->method('has_grant');
+        $payments = ['Gift Card:1001' => ['payment_type' => 'Gift Card:1001', 'payment_amount' => '5.00']];
+
+        $approval = new Return_approval($employee);
+
+        $this->assertFalse($approval->requires_approval_to_suspend($this->cart([1]), $payments, 7, ['Gift Card', 'Rewards']));
+    }
+
+    public function testSuspendWithGrantNeedsNoApproval(): void
+    {
+        $employee = $this->createMock(Employee::class);
+        $employee->method('has_grant')->with('sales_returns', 7)->willReturn(true);
+        $payments = ['Gift Card:1001' => ['payment_type' => 'Gift Card:1001', 'payment_amount' => '-5.00']];
+
+        $approval = new Return_approval($employee);
+
+        $this->assertFalse($approval->requires_approval_to_suspend($this->cart([-1]), $payments, 7, ['Gift Card', 'Rewards']));
+    }
+
+    public function testAccountPaymentsPayOutForNegativeGiftcard(): void
+    {
+        $payments = ['Gift Card:1001' => ['payment_type' => 'Gift Card:1001', 'payment_amount' => '-5.00']];
+
+        $this->assertTrue(Return_approval::account_payments_pay_out($payments, ['Gift Card', 'Rewards']));
+    }
+
+    public function testAccountPaymentsDoNotPayOutForNegativeCash(): void
+    {
+        $payments = ['Cash' => ['payment_type' => 'Cash', 'payment_amount' => '-5.00']];
+
+        $this->assertFalse(Return_approval::account_payments_pay_out($payments, ['Gift Card', 'Rewards']));
+    }
+
+    public function testAccountPaymentsDoNotPayOutForPositiveGiftcard(): void
+    {
+        $payments = ['Gift Card:1001' => ['payment_type' => 'Gift Card:1001', 'payment_amount' => '5.00']];
+
+        $this->assertFalse(Return_approval::account_payments_pay_out($payments, ['Gift Card', 'Rewards']));
     }
 }

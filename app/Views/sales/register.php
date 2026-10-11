@@ -791,6 +791,10 @@ helper('url');
         });
 
         $('#return_approval_submit').click(function() {
+            if (approval_action === '') {
+                return;
+            }
+
             $('#buttons_form input[name="approver_username"]').val($('#return_approver_username').val());
             $('#buttons_form input[name="approver_password"]').val($('#return_approver_password').val());
             submit_register_action(approval_action);
