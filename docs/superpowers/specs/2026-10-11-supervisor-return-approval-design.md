@@ -162,3 +162,23 @@ Manual check on the register:
 4. Submitting the Complete form from the browser console with a return in the cart →
    refused by the server (not a bypass).
 5. Detailed Sales report shows "Approved by" for the approved sale.
+
+## Amendment 1 (2026-10-11) — loopholes found during review
+
+Two ways to pay money out without approval were found after Task 3:
+
+1. **Negative line totals.** The server accepts any price and discount from the register
+   (the `sales_change_price` permission only hides the UI field), so a positive-quantity
+   line with a negative price or a discount above the price produces a negative total.
+   **Decision:** a cart "has returns" when any line has a negative quantity **or** a
+   negative line total (`discounted_total` < 0). Such carts need approval at checkout
+   exactly like returns.
+2. **Suspend with gift card / rewards payments.** `Sale::save_value()` changes gift card
+   and reward balances for every saved sale, including suspended ones, so suspending a
+   return paid to a gift card credits it without approval.
+   **Decision:** suspending needs supervisor approval (same popup, same server check) when
+   the cart needs return approval **and** a payment is a gift card or rewards payment.
+   Other suspends are unchanged. The approver is recorded on the suspended sale; completing
+   it later is checked again.
+
+Still out of scope: enforcing `sales_change_price` on the server; rate-limiting approval attempts.

@@ -830,3 +830,312 @@ git commit -m "Show return approver in Detailed Sales report
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
+
+---
+
+### Task 5: Close loopholes — negative line totals and suspend with gift card / rewards
+
+Added 2026-10-11 after Task 3 review and a security scan found two ways to pay money out without approval; the user chose both fixes (spec section "Amendment 1").
+
+**Files:**
+- Modify: `app/Libraries/Return_approval.php`
+- Modify: `tests/Libraries/Return_approvalTest.php`
+- Modify: `app/Controllers/Sales.php` (`postComplete()`, `postSuspend()`, `_reload()`, new private helper)
+- Modify: `app/Views/sales/register.php` (docblock, Complete/Suspend/Approve handlers)
+
+**Interfaces:**
+- Consumes: everything from Tasks 1-3. Cart lines (from `Sale_lib::get_cart()`) carry `quantity` and `discounted_total` (line total after discount; maintained by `add_item()` and `edit_item()`). Payments (from `Sale_lib::get_payments()`) are an array of `['payment_type' => string, 'payment_amount' => …]`; gift card payments have `payment_type` `lang('Sales.giftcard') . ':' . <number>`, rewards payments `lang('Sales.rewards')`.
+- Produces:
+  - `Return_approval::cart_has_returns(array $cart): bool` — now also true when a line's `discounted_total` < 0.
+  - `Return_approval::payments_credit_accounts(array $payments, array $account_payment_types): bool` (static)
+  - `Return_approval::requires_approval_to_suspend(array $cart, array $payments, int $employee_id, array $account_payment_types): bool`
+  - `Sales::approve_return_or_reload(): ?int` (private)
+  - View variable `$return_approval_needed_on_suspend` (bool)
+
+- [ ] **Step 1: Write the failing tests**
+
+Add to `tests/Libraries/Return_approvalTest.php`:
+
+```php
+    public function testNegativeLineTotalIsAReturn(): void
+    {
+        $cart = [1 => ['item_id' => 1, 'line' => 1, 'quantity' => 1, 'discounted_total' => '-5.00']];
+
+        $this->assertTrue(Return_approval::cart_has_returns($cart));
+    }
+
+    public function testDiscountAbovePriceIsAReturn(): void
+    {
+        // 150% discount on a 10.00 item: total -5.00
+        $cart = [1 => ['item_id' => 1, 'line' => 1, 'quantity' => 1, 'discounted_total' => '-5.00']];
+
+        $this->assertTrue(Return_approval::cart_has_returns($cart));
+    }
+
+    public function testPositiveLineTotalIsNotAReturn(): void
+    {
+        $cart = [1 => ['item_id' => 1, 'line' => 1, 'quantity' => 2, 'discounted_total' => '18.00']];
+
+        $this->assertFalse(Return_approval::cart_has_returns($cart));
+    }
+
+    public function testGiftcardPaymentCreditsAnAccount(): void
+    {
+        $payments = ['Gift Card:1001' => ['payment_type' => 'Gift Card:1001', 'payment_amount' => '-5.00']];
+
+        $this->assertTrue(Return_approval::payments_credit_accounts($payments, ['Gift Card', 'Rewards']));
+    }
+
+    public function testRewardsPaymentCreditsAnAccount(): void
+    {
+        $payments = ['Rewards' => ['payment_type' => 'Rewards', 'payment_amount' => '-5.00']];
+
+        $this->assertTrue(Return_approval::payments_credit_accounts($payments, ['Gift Card', 'Rewards']));
+    }
+
+    public function testCashPaymentDoesNotCreditAnAccount(): void
+    {
+        $payments = ['Cash' => ['payment_type' => 'Cash', 'payment_amount' => '-5.00']];
+
+        $this->assertFalse(Return_approval::payments_credit_accounts($payments, ['Gift Card', 'Rewards']));
+    }
+
+    public function testSuspendNeedsApprovalForReturnPaidToGiftcard(): void
+    {
+        $employee = $this->createMock(Employee::class);
+        $employee->method('has_grant')->with('sales_returns', 7)->willReturn(false);
+        $payments = ['Gift Card:1001' => ['payment_type' => 'Gift Card:1001', 'payment_amount' => '-5.00']];
+
+        $approval = new Return_approval($employee);
+
+        $this->assertTrue($approval->requires_approval_to_suspend($this->cart([-1]), $payments, 7, ['Gift Card', 'Rewards']));
+    }
+
+    public function testSuspendWithoutAccountPaymentNeedsNoApproval(): void
+    {
+        $employee = $this->createMock(Employee::class);
+        $employee->expects($this->never())->method('has_grant');
+        $payments = ['Cash' => ['payment_type' => 'Cash', 'payment_amount' => '-5.00']];
+
+        $approval = new Return_approval($employee);
+
+        $this->assertFalse($approval->requires_approval_to_suspend($this->cart([-1]), $payments, 7, ['Gift Card', 'Rewards']));
+    }
+
+    public function testSuspendWithGiftcardButNoReturnsNeedsNoApproval(): void
+    {
+        $employee = $this->createMock(Employee::class);
+        $employee->expects($this->never())->method('has_grant');
+        $payments = ['Gift Card:1001' => ['payment_type' => 'Gift Card:1001', 'payment_amount' => '5.00']];
+
+        $approval = new Return_approval($employee);
+
+        $this->assertFalse($approval->requires_approval_to_suspend($this->cart([1]), $payments, 7, ['Gift Card', 'Rewards']));
+    }
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `vendor/bin/phpunit --no-coverage tests/Libraries/Return_approvalTest.php`
+Expected: FAIL — `testNegativeLineTotalIsAReturn` and `testDiscountAbovePriceIsAReturn` fail on assertion; the suspend/payment tests error with undefined method.
+
+- [ ] **Step 3: Implement in the library**
+
+In `app/Libraries/Return_approval.php`, replace `cart_has_returns()` and add the two new methods:
+
+```php
+    /**
+     * True when any cart line pays money out: a negative quantity, or a negative
+     * line total (negative price, or a discount larger than the price).
+     */
+    public static function cart_has_returns(array $cart): bool
+    {
+        foreach ($cart as $item) {
+            if ((float) $item['quantity'] < 0 || (float) ($item['discounted_total'] ?? 0) < 0) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * True when any payment goes to a stored-value account (gift card, rewards),
+     * whose balance changes as soon as the sale is saved, even when suspended.
+     *
+     * @param array $account_payment_types payment type labels, matched as substrings
+     */
+    public static function payments_credit_accounts(array $payments, array $account_payment_types): bool
+    {
+        foreach ($payments as $payment) {
+            foreach ($account_payment_types as $type) {
+                if (str_contains($payment['payment_type'], $type)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * True when suspending would move money for a return without approval.
+     */
+    public function requires_approval_to_suspend(array $cart, array $payments, int $employee_id, array $account_payment_types): bool
+    {
+        return self::payments_credit_accounts($payments, $account_payment_types)
+            && $this->requires_approval($cart, $employee_id);
+    }
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `vendor/bin/phpunit --no-coverage`
+Expected: `OK (25 tests, …)`
+
+- [ ] **Step 5: Controller — shared approval helper**
+
+In `app/Controllers/Sales.php`, add a private method (place it just before `_reload()`):
+
+```php
+    /**
+     * Verifies the supervisor credentials posted with the register form.
+     * On failure reloads the register with an error and returns null.
+     */
+    private function approve_return_or_reload(): ?int
+    {
+        $approver_username = (string) $this->request->getPost('approver_username');
+        $approver_password = (string) $this->request->getPost('approver_password');
+        $approver_id = $this->return_approval->verify_approver($approver_username, $approver_password);
+
+        if ($approver_id === null) {
+            $error = trim($approver_username) === '' ? 'Sales.return_approval_required' : 'Sales.return_approval_invalid';
+            $this->_reload(['error' => lang($error)]);
+        }
+
+        return $approver_id;
+    }
+```
+
+In `postComplete()`, replace the block added by Task 3 with:
+
+```php
+        $return_approved_by = null;
+
+        if ($this->return_approval->requires_approval($data['cart'], $employee_id)) {
+            $return_approved_by = $this->approve_return_or_reload();
+
+            if ($return_approved_by === null) {
+                return;
+            }
+        }
+```
+
+- [ ] **Step 6: Controller — enforce on suspend**
+
+In `postSuspend()`, directly after `$employee_id = $this->employee->get_logged_in_employee_info()->person_id;` insert:
+
+```php
+        $return_approved_by = null;
+
+        if ($this->return_approval->requires_approval_to_suspend($cart, $payments, $employee_id, [lang('Sales.giftcard'), lang('Sales.rewards')])) {
+            $return_approved_by = $this->approve_return_or_reload();
+
+            if ($return_approved_by === null) {
+                return;
+            }
+        }
+```
+
+and append `, $return_approved_by` to its `save_value(...)` call so it ends `$payments, $dinner_table, $sales_taxes, $return_approved_by) == '-1') {`.
+
+In `_reload()`, after the `$data['return_approval_needed'] = …;` statement added in Task 3, add:
+
+```php
+        $data['return_approval_needed_on_suspend'] = $this->return_approval->requires_approval_to_suspend(
+            $data['cart'],
+            $this->sale_lib->get_payments(),
+            $this->employee->get_logged_in_employee_info()->person_id,
+            [lang('Sales.giftcard'), lang('Sales.rewards')]
+        );
+```
+
+- [ ] **Step 7: Register view — Suspend goes through the modal when needed**
+
+In `app/Views/sales/register.php` add to the docblock: ` * @var bool $return_approval_needed_on_suspend`
+
+Replace the Task 3 JS block from `var return_approval_needed = …` through the `#return_approval_submit` click handler, and the existing `$('#suspend_sale_button').click(...)` handler, with:
+
+```js
+        var return_approval_needed = <?= json_encode((bool) $return_approval_needed) ?>;
+        var return_approval_needed_on_suspend = <?= json_encode((bool) $return_approval_needed_on_suspend) ?>;
+        var approval_action = '';
+
+        function submit_register_action(action) {
+            $('#buttons_form').attr('action', action);
+            $('#buttons_form').submit();
+        }
+
+        function request_approval_or_submit(needed, action) {
+            if (needed) {
+                approval_action = action;
+                $('#return_approval_modal').modal('show');
+            } else {
+                submit_register_action(action);
+            }
+        }
+
+        function complete_or_request_approval() {
+            request_approval_or_submit(return_approval_needed, "<?= "$controller_name/complete" ?>");
+        }
+
+        $('#finish_sale_button').click(complete_or_request_approval);
+        $('#finish_invoice_quote_button').click(complete_or_request_approval);
+
+        $('#suspend_sale_button').click(function() {
+            request_approval_or_submit(return_approval_needed_on_suspend, "<?= site_url("$controller_name/suspend") ?>");
+        });
+
+        $('#return_approval_modal').on('shown.bs.modal', function() {
+            $('#return_approver_username').focus();
+        });
+
+        $('#return_approval_submit').click(function() {
+            $('#buttons_form input[name="approver_username"]').val($('#return_approver_username').val());
+            $('#buttons_form input[name="approver_password"]').val($('#return_approver_password').val());
+            submit_register_action(approval_action);
+        });
+```
+
+Keep the existing `#return_approver_password` Enter-key handler. Search the file for any other place that submits `#buttons_form` to `complete` or `suspend` directly (`grep -n "buttons_form" app/Views/sales/register.php`) and make sure each goes through these handlers.
+
+- [ ] **Step 8: Checks**
+
+```bash
+vendor/bin/phpunit --no-coverage
+vendor/bin/php-cs-fixer fix --dry-run --diff --config=.php-cs-fixer.no-header.php app/Libraries/Return_approval.php tests/Libraries/Return_approvalTest.php
+php -l app/Controllers/Sales.php && php -l app/Views/sales/register.php
+grep -c "approve_return_or_reload()" app/Controllers/Sales.php
+```
+Expected: tests OK; no fixer diff on the library/test; syntax clean; grep prints `3` (definition + two calls).
+
+Manual (server-side, as `cashier1` who lacks Approve Returns):
+1. Sale mode: add Milk qty 1, edit the line's price to `-5`, add a cash payment, Complete without credentials → "needs supervisor approval"; no sale saved. With admin credentials → completes, `return_approved_by` = 1.
+2. Sale mode: add an item, edit discount to 150 (%), Complete without credentials → refused.
+3. Return mode: scan Milk, add a Gift Card payment for an existing gift card, Suspend without credentials → "needs supervisor approval"; gift card value unchanged; no suspended sale saved. With admin credentials → suspended; gift card value changed; the suspended row has `return_approved_by` = 1.
+4. Return mode with a Cash payment, Suspend without credentials → suspends normally (no approval needed).
+5. Sale mode, normal positive sale, Suspend → suspends normally.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add app/Libraries/Return_approval.php tests/Libraries/Return_approvalTest.php app/Controllers/Sales.php app/Views/sales/register.php
+git commit -m "Close return-approval loopholes: negative totals and suspend
+
+Lines with a negative total (negative price, discount above price) now
+count as returns. Suspending a return paid to a gift card or rewards
+account also needs supervisor approval, because those balances change
+as soon as the sale is saved.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
