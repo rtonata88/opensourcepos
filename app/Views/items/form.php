@@ -223,7 +223,7 @@
                     'name'  => 'deal_quantity',
                     'id'    => 'deal_quantity',
                     'class' => 'form-control input-sm',
-                    'value' => $item_info->deal_quantity ?? ''
+                    'value' => empty($item_info->deal_quantity) ? '' : $item_info->deal_quantity
                 ]) ?>
             </div>
         </div>
@@ -239,7 +239,7 @@
                         'name'  => 'deal_price',
                         'id'    => 'deal_price',
                         'class' => 'form-control input-sm',
-                        'value' => isset($item_info->deal_price) ? to_currency_no_money($item_info->deal_price) : ''
+                        'value' => empty((float) ($item_info->deal_price ?? 0)) ? '' : to_currency_no_money($item_info->deal_price)
                     ]) ?>
                     <?php if (is_right_side_currency_symbol()): ?>
                         <span class="input-group-addon input-sm"><b><?= esc($config['currency_symbol']) ?></b></span>
