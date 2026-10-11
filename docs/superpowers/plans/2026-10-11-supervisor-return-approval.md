@@ -1139,3 +1139,209 @@ as soon as the sale is saved.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
+
+---
+
+### Task 6: Editing a past sale's payments requires Approve Returns
+
+Added 2026-10-11 after the final whole-branch review: `Sales::postSave` (the edit-sale dialog) has no grant check, so any employee with the Sales module can add a negative payment to a past sale or change existing payment/refund amounts and record a payout alone. User decision: such edits require the editor to hold `sales_returns` (no popup — supervisors make these edits themselves). Spec "Amendment 2".
+
+**Files:**
+- Modify: `app/Libraries/Return_approval.php`
+- Modify: `tests/Libraries/Return_approvalTest.php`
+- Modify: `app/Controllers/Sales.php` (`postSave()`)
+- Modify: `app/Language/en/Sales.php`
+
+**Interfaces:**
+- Consumes: `Return_approval::PERMISSION`, `Employee::has_grant()`; `Sale::get_sale_payments(int $sale_id): ResultInterface` (rows of `ospos_sales_payments`: `payment_id`, `payment_type`, `payment_amount`, `cash_refund`, …). In `postSave`, `$sale_data['payments']` is a list of `['payment_id', 'payment_type', 'payment_amount', 'cash_refund', 'cash_adjustment', 'employee_id']`, where a new payment has `payment_id` = `NEW_ENTRY` (-1) and existing payments carry their DB id. Note `Sale::update()` updates existing payments **by payment_id alone** and deletes a payment whose amount is 0.
+- Produces:
+  - `Return_approval::payment_edits_pay_out(array $stored_payments, array $edited_payments): bool` (static)
+  - `Return_approval::requires_approval_to_edit(array $stored_payments, array $edited_payments, int $employee_id): bool`
+  - Language key `Sales.return_approval_edit_denied`
+
+**Rule:** `payment_edits_pay_out` is true when any edited payment:
+- is new (`payment_id` == `NEW_ENTRY`) with (float) `payment_amount` < 0; or
+- is existing but its `payment_id` is not among the stored payments of this sale; or
+- is existing and its `payment_amount` or `cash_refund` differs from the stored row (compare as `round((float) $x, 2)`; changing only `payment_type` is allowed, as today).
+`requires_approval_to_edit` = `payment_edits_pay_out(...) && !has_grant(PERMISSION, $employee_id)` (DB lookup last).
+
+- [ ] **Step 1: Failing tests** — add to `tests/Libraries/Return_approvalTest.php` (stored rows keyed however `get_sale_payments()->getResultArray()` returns them — a list; the library must index them by `payment_id` itself):
+
+```php
+    private function storedPayments(): array
+    {
+        return [
+            ['payment_id' => '11', 'payment_type' => 'Cash', 'payment_amount' => '20.00', 'cash_refund' => '0.00'],
+        ];
+    }
+
+    private function editedPayment(int $id, string $type, string $amount, string $refund = '0.00'): array
+    {
+        return ['payment_id' => $id, 'payment_type' => $type, 'payment_amount' => $amount, 'cash_refund' => $refund, 'cash_adjustment' => 0, 'employee_id' => 3];
+    }
+
+    public function testUnchangedPaymentsDoNotPayOut(): void
+    {
+        $this->assertFalse(Return_approval::payment_edits_pay_out($this->storedPayments(), [$this->editedPayment(11, 'Cash', '20.00')]));
+    }
+
+    public function testChangingOnlyPaymentTypeDoesNotPayOut(): void
+    {
+        $this->assertFalse(Return_approval::payment_edits_pay_out($this->storedPayments(), [$this->editedPayment(11, 'Debit Card', '20')]));
+    }
+
+    public function testChangedAmountPaysOut(): void
+    {
+        $this->assertTrue(Return_approval::payment_edits_pay_out($this->storedPayments(), [$this->editedPayment(11, 'Cash', '5.00')]));
+    }
+
+    public function testChangedRefundPaysOut(): void
+    {
+        $this->assertTrue(Return_approval::payment_edits_pay_out($this->storedPayments(), [$this->editedPayment(11, 'Cash', '20.00', '15.00')]));
+    }
+
+    public function testZeroingAPaymentPaysOut(): void
+    {
+        $this->assertTrue(Return_approval::payment_edits_pay_out($this->storedPayments(), [$this->editedPayment(11, 'Cash', '0')]));
+    }
+
+    public function testNewNegativePaymentPaysOut(): void
+    {
+        $edited = [$this->editedPayment(11, 'Cash', '20.00'), $this->editedPayment(-1, 'Cash', '-50.00')];
+
+        $this->assertTrue(Return_approval::payment_edits_pay_out($this->storedPayments(), $edited));
+    }
+
+    public function testNewPositivePaymentDoesNotPayOut(): void
+    {
+        $edited = [$this->editedPayment(11, 'Cash', '20.00'), $this->editedPayment(-1, 'Cash', '5.00')];
+
+        $this->assertFalse(Return_approval::payment_edits_pay_out($this->storedPayments(), $edited));
+    }
+
+    public function testForeignPaymentIdPaysOut(): void
+    {
+        $this->assertTrue(Return_approval::payment_edits_pay_out($this->storedPayments(), [$this->editedPayment(99, 'Cash', '20.00')]));
+    }
+
+    public function testEditNeedsApprovalWithoutPermission(): void
+    {
+        $employee = $this->createMock(Employee::class);
+        $employee->expects($this->once())->method('has_grant')->with('sales_returns', 3)->willReturn(false);
+
+        $approval = new Return_approval($employee);
+
+        $this->assertTrue($approval->requires_approval_to_edit($this->storedPayments(), [$this->editedPayment(11, 'Cash', '5.00')], 3));
+    }
+
+    public function testEditAllowedWithPermission(): void
+    {
+        $employee = $this->createMock(Employee::class);
+        $employee->method('has_grant')->with('sales_returns', 1)->willReturn(true);
+
+        $approval = new Return_approval($employee);
+
+        $this->assertFalse($approval->requires_approval_to_edit($this->storedPayments(), [$this->editedPayment(11, 'Cash', '5.00')], 1));
+    }
+
+    public function testHarmlessEditSkipsGrantLookup(): void
+    {
+        $employee = $this->createMock(Employee::class);
+        $employee->expects($this->never())->method('has_grant');
+
+        $approval = new Return_approval($employee);
+
+        $this->assertFalse($approval->requires_approval_to_edit($this->storedPayments(), [$this->editedPayment(11, 'Debit Card', '20.00')], 3));
+    }
+```
+
+Run `vendor/bin/phpunit --no-coverage tests/Libraries/Return_approvalTest.php` → FAIL (undefined methods).
+
+- [ ] **Step 2: Implement in the library**
+
+```php
+    /**
+     * True when edits to a past sale's payments could pay money out: a new negative
+     * payment, a changed amount or refund on an existing payment, or a payment id
+     * that does not belong to the sale. Changing only the payment type is allowed.
+     *
+     * @param array $stored_payments rows from Sale::get_sale_payments()
+     * @param array $edited_payments payments built by Sales::postSave()
+     */
+    public static function payment_edits_pay_out(array $stored_payments, array $edited_payments): bool
+    {
+        $stored_by_id = array_column($stored_payments, null, 'payment_id');
+
+        foreach ($edited_payments as $payment) {
+            if ((int) $payment['payment_id'] === NEW_ENTRY) {
+                if ((float) $payment['payment_amount'] < 0) {
+                    return true;
+                }
+
+                continue;
+            }
+
+            $stored = $stored_by_id[$payment['payment_id']] ?? null;
+
+            if ($stored === null
+                || round((float) $payment['payment_amount'], 2) !== round((float) $stored['payment_amount'], 2)
+                || round((float) $payment['cash_refund'], 2) !== round((float) $stored['cash_refund'], 2)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * True when the employee may not save these edits to a past sale's payments.
+     */
+    public function requires_approval_to_edit(array $stored_payments, array $edited_payments, int $employee_id): bool
+    {
+        return self::payment_edits_pay_out($stored_payments, $edited_payments)
+            && !$this->employee->has_grant(self::PERMISSION, $employee_id);
+    }
+```
+
+(`NEW_ENTRY` is defined in `app/Config/Constants.php`; if the test bootstrap does not load it, use `-1` via a class constant `private const NEW_PAYMENT = -1;` and say so in the report.)
+
+Run the tests → PASS.
+
+- [ ] **Step 3: Enforce in `postSave()`**
+
+Add the language key to `app/Language/en/Sales.php`:
+
+```php
+    "return_approval_edit_denied"      => "Only employees with Approve Returns can add negative payments or change payment amounts on a past sale.",
+```
+
+In `Sales::postSave()`, after the block that appends the new payment (just before `$inventory->update(...)`), insert:
+
+```php
+        $stored_payments = $this->sale->get_sale_payments($sale_id)->getResultArray();
+
+        if ($this->return_approval->requires_approval_to_edit($stored_payments, $sale_data['payments'] ?? [], $employee_id)) {
+            echo json_encode(['success' => false, 'message' => lang('Sales.return_approval_edit_denied'), 'id' => $sale_id]);
+
+            return;
+        }
+```
+
+- [ ] **Step 4: Checks**
+
+```bash
+vendor/bin/phpunit --no-coverage
+vendor/bin/php-cs-fixer fix --dry-run --diff --config=.php-cs-fixer.no-header.php app/Libraries/Return_approval.php tests/Libraries/Return_approvalTest.php
+php -l app/Controllers/Sales.php
+```
+
+Manual (app via `php spark serve`, curl as `cashier1` then `admin`; read-only SELECTs to check): POST `sales/save/<id>` for an existing completed sale (a) changing only a payment type → success; (b) adding `payment_amount_new=-50` → refused for cashier1, payments unchanged; (c) changing an existing `payment_amount_0` → refused for cashier1; (d) as admin, (b) succeeds. Only use test sales 8–14 for these edits.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add app/Libraries/Return_approval.php tests/Libraries/Return_approvalTest.php app/Controllers/Sales.php app/Language/en/Sales.php
+git commit -m "Require Approve Returns to change payments on past sales
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```

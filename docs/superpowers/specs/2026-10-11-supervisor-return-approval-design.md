@@ -29,7 +29,8 @@ in reports.
 ### Non-goals
 
 - Rate-limiting failed approval attempts (login page has none either).
-- Approval for editing/deleting past sales (already governed by `sales_delete`).
+- Approval for deleting or restoring past sales (governed by `sales_delete`). Editing past sales
+  is covered by Amendment 2.
 - Printing the approver on receipts.
 - Translating new strings beyond `en` (other locales come through Weblate).
 
@@ -182,3 +183,14 @@ Two ways to pay money out without approval were found after Task 3:
    it later is checked again.
 
 Still out of scope: enforcing `sales_change_price` on the server; rate-limiting approval attempts.
+
+## Amendment 2 (2026-10-11) — final review findings
+
+1. **Negative payments on complete.** A positive cart can be "paid" with a negative payment
+   (e.g. Cash −500 balanced by another tender), paying money out. **Decision:** completing a
+   sale needs approval when the cart has returns **or** any payment amount is negative.
+2. **Editing past sales.** The original non-goal assumed `sales_delete` governs editing past
+   sales; it does not — `Sales::postSave` has no grant check. **Decision (user):** saving edits
+   to a past sale that add a negative payment, change an existing payment's amount or refund,
+   or reference a payment id outside the sale requires the editor to hold `sales_returns`.
+   No popup: supervisors make these edits themselves. Changing only a payment type stays open.
