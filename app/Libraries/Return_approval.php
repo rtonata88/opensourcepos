@@ -55,10 +55,16 @@ class Return_approval
 
     /**
      * True when any payment is negative, i.e. the sale pays money out to the customer.
+     * Cash-rounding adjustment entries (cash_adjustment flag set) are ignored.
      */
     public static function payments_pay_out(array $payments): bool
     {
         foreach ($payments as $payment) {
+            // The negative rounding entry the register adds for cash rounding is not a pay-out
+            if (! empty($payment['cash_adjustment'])) {
+                continue;
+            }
+
             if ((float) $payment['payment_amount'] < 0) {
                 return true;
             }
@@ -115,8 +121,10 @@ class Return_approval
 
     /**
      * True when edits to a past sale's payments could pay money out: a new negative
-     * payment, a changed amount or refund on an existing payment, or a payment id
-     * that does not belong to the sale. Changing only the payment type is allowed.
+     * payment whose amount minus refund is negative, a changed amount, refund or
+     * cash-adjustment flag on an existing payment, or a payment id that does not
+     * belong to the sale. Changing only the payment type (without moving it in or
+     * out of Cash Adjustment) is allowed.
      *
      * @param array $stored_payments rows from Sale::get_sale_payments()
      * @param array $edited_payments payments built by Sales::postSave()
@@ -127,7 +135,7 @@ class Return_approval
 
         foreach ($edited_payments as $payment) {
             if ((int) $payment['payment_id'] === NEW_ENTRY) {
-                if ((float) $payment['payment_amount'] < 0) {
+                if (round((float) $payment['payment_amount'] - (float) $payment['cash_refund'], 2) < 0) {
                     return true;
                 }
 
@@ -138,7 +146,8 @@ class Return_approval
 
             if ($stored === null
                 || round((float) $payment['payment_amount'], 2) !== round((float) $stored['payment_amount'], 2)
-                || round((float) $payment['cash_refund'], 2) !== round((float) $stored['cash_refund'], 2)) {
+                || round((float) $payment['cash_refund'], 2) !== round((float) $stored['cash_refund'], 2)
+                || (int) $payment['cash_adjustment'] !== (int) $stored['cash_adjustment']) {
                 return true;
             }
         }

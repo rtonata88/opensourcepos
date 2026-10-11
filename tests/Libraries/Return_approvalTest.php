@@ -344,13 +344,13 @@ final class Return_approvalTest extends TestCase
     private function storedPayments(): array
     {
         return [
-            ['payment_id' => '11', 'payment_type' => 'Cash', 'payment_amount' => '20.00', 'cash_refund' => '0.00'],
+            ['payment_id' => '11', 'payment_type' => 'Cash', 'payment_amount' => '20.00', 'cash_refund' => '0.00', 'cash_adjustment' => '0'],
         ];
     }
 
-    private function editedPayment(int $id, string $type, string $amount, string $refund = '0.00'): array
+    private function editedPayment(int $id, string $type, string $amount, string $refund = '0.00', int $cash_adjustment = 0): array
     {
-        return ['payment_id' => $id, 'payment_type' => $type, 'payment_amount' => $amount, 'cash_refund' => $refund, 'cash_adjustment' => 0, 'employee_id' => 3];
+        return ['payment_id' => $id, 'payment_type' => $type, 'payment_amount' => $amount, 'cash_refund' => $refund, 'cash_adjustment' => $cash_adjustment, 'employee_id' => 3];
     }
 
     public function testUnchangedPaymentsDoNotPayOut(): void
@@ -425,5 +425,41 @@ final class Return_approvalTest extends TestCase
         $approval = new Return_approval($employee);
 
         $this->assertFalse($approval->requires_approval_to_edit($this->storedPayments(), [$this->editedPayment(11, 'Debit Card', '20.00')], 3));
+    }
+
+    public function testNewPositivePaymentWithLargerRefundPaysOut(): void
+    {
+        $edited = [$this->editedPayment(11, 'Cash', '20.00'), $this->editedPayment(-1, 'Cash', '5', '100')];
+
+        $this->assertTrue(Return_approval::payment_edits_pay_out($this->storedPayments(), $edited));
+    }
+
+    public function testNewPositivePaymentWithNoRefundDoesNotPayOut(): void
+    {
+        $edited = [$this->editedPayment(11, 'Cash', '20.00'), $this->editedPayment(-1, 'Cash', '5', '0')];
+
+        $this->assertFalse(Return_approval::payment_edits_pay_out($this->storedPayments(), $edited));
+    }
+
+    public function testChangingTypeToCashAdjustmentPaysOut(): void
+    {
+        $this->assertTrue(Return_approval::payment_edits_pay_out($this->storedPayments(), [$this->editedPayment(11, 'Cash Adjustment', '20.00', '0.00', 1)]));
+    }
+
+    public function testNegativeCashAdjustmentPaymentIsNotAPayOut(): void
+    {
+        $payments = [
+            'Cash'            => ['payment_type' => 'Cash', 'payment_amount' => '9.00', 'cash_adjustment' => 0],
+            'Cash Adjustment' => ['payment_type' => 'Cash Adjustment', 'payment_amount' => '-0.02', 'cash_adjustment' => 1],
+        ];
+
+        $this->assertFalse(Return_approval::payments_pay_out($payments));
+    }
+
+    public function testNegativePaymentWithoutAdjustmentFlagStillPaysOut(): void
+    {
+        $payments = ['Cash' => ['payment_type' => 'Cash', 'payment_amount' => '-0.02', 'cash_adjustment' => 0]];
+
+        $this->assertTrue(Return_approval::payments_pay_out($payments));
     }
 }

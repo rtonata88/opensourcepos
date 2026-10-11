@@ -385,7 +385,9 @@ class Sales extends Secure_Controller
             $messages = ['amount_tendered' => lang('Sales.must_enter_numeric_giftcard')];
         }
 
-        if (!$this->validate($rules, $messages)) {
+        if ($payment_type === lang('Sales.cash_adjustment')) {
+            $data['error'] = lang('Sales.cash_adjustment_not_allowed');
+        } elseif (!$this->validate($rules, $messages)) {
             $data['error'] = $payment_type === lang('Sales.giftcard')
                 ? lang('Sales.must_enter_numeric_giftcard')
                 : lang('Sales.must_enter_numeric');

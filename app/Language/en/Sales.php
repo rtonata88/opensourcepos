@@ -19,6 +19,7 @@ return [
     "cash_3"                           => "",
     "cash_4"                           => "",
     "cash_adjustment"                  => "Cash Adjustment",
+    "cash_adjustment_not_allowed"      => "Cash adjustments are added automatically and cannot be entered by hand.",
     "cash_deposit"                     => "Cash Deposit",
     "cash_filter"                      => "Cash",
     "change_due"                       => "Change Due",
