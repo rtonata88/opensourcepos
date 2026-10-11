@@ -1112,6 +1112,7 @@ class Sale extends Model
                     MAX(customer.company_name) AS customer_company_name,
                     MAX(sales.employee_id) AS employee_id,
                     MAX(CONCAT(employee.first_name, " ", employee.last_name)) AS employee_name,
+                    MAX(CONCAT(approver.first_name, " ", approver.last_name)) AS approver_name,
                     items.item_id AS item_id,
                     MAX(' . $item->get_item_name() . ') AS name,
                     MAX(items.item_number) AS item_number,
@@ -1150,6 +1151,8 @@ class Sale extends Model
                     ON sales.customer_id = customer.person_id
                 LEFT OUTER JOIN ' . $this->db->prefixTable('people') . ' AS employee
                     ON sales.employee_id = employee.person_id
+                LEFT OUTER JOIN ' . $this->db->prefixTable('people') . ' AS approver
+                    ON sales.return_approved_by = approver.person_id
                 LEFT OUTER JOIN ' . $this->db->prefixTable('sales_items_taxes_temp') . ' AS sales_items_taxes
                     ON sales_items.sale_id = sales_items_taxes.sale_id AND sales_items.item_id = sales_items_taxes.item_id AND sales_items.line = sales_items_taxes.line
                 WHERE ' . $where . '

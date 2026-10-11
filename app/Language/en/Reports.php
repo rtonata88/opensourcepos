@@ -2,6 +2,7 @@
 
 return [
     "all"                                     => "All",
+    "approved_by"                             => "Approved By",
     "authority"                               => "Authority",
     "canceled"                                => "Canceled",
     "categories"                              => "Categories",
