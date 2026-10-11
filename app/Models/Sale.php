@@ -545,7 +545,6 @@ class Sale extends Model
             'work_order_number'  => $work_order_number,
             'dinner_table_id'    => $dinner_table_id,
             'sale_type'          => $sale_type,
-            'return_approved_by' => $return_approved_by,
         ];
 
         // Run these queries as a transaction, we want to make sure we do all or nothing
@@ -553,11 +552,18 @@ class Sale extends Model
 
         if ($sale_id == NEW_ENTRY) {
             $builder = $this->db->table('sales');
+            $sales_data['return_approved_by'] = $return_approved_by;
             $builder->insert($sales_data);
             $sale_id = $this->db->insertID();
         } else {
             $builder = $this->db->table('sales');
             $builder->where('sale_id', $sale_id);
+
+            // Keep the approver recorded when the sale was suspended
+            if ($return_approved_by !== null) {
+                $sales_data['return_approved_by'] = $return_approved_by;
+            }
+
             $builder->update($sales_data);
         }
 

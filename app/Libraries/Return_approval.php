@@ -54,11 +54,26 @@ class Return_approval
     }
 
     /**
-     * True when the cart contains returns and the employee may not approve them.
+     * True when any payment is negative, i.e. the sale pays money out to the customer.
      */
-    public function requires_approval(array $cart, int $employee_id): bool
+    public static function payments_pay_out(array $payments): bool
     {
-        return self::cart_has_returns($cart)
+        foreach ($payments as $payment) {
+            if ((float) $payment['payment_amount'] < 0) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * True when completing the sale pays money out (the cart contains returns or
+     * any payment is negative) and the employee may not approve returns.
+     */
+    public function requires_approval(array $cart, array $payments, int $employee_id): bool
+    {
+        return (self::cart_has_returns($cart) || self::payments_pay_out($payments))
             && ! $this->employee->has_grant(self::PERMISSION, $employee_id);
     }
 

@@ -902,8 +902,23 @@ helper('url');
         }
     }
 
+    // Bootstrap closes a modal on Esc keydown (removing .in at once), so by keyup the
+    // modal looks closed. Remember in the capture phase, before Bootstrap runs,
+    // that this Esc keystroke started while a modal was open.
+    var esc_closed_modal = false;
+    document.addEventListener('keydown', function(e) {
+        if (e.keyCode === 27) {
+            esc_closed_modal = $('.modal.in').length > 0;
+        }
+    }, true);
+
     // Add Keyboard Shortcuts/Hotkeys to Sale Register
     document.body.onkeyup = function(e) {
+        if (esc_closed_modal || $('.modal.in').length) {
+            esc_closed_modal = false;
+            return;
+        }
+
         switch (event.altKey && event.keyCode) {
             case 49: // Alt + 1 Items Seach
                 $("#item").focus();

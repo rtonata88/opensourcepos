@@ -661,7 +661,7 @@ class Sales extends Secure_Controller
 
         $return_approved_by = null;
 
-        if ($this->return_approval->requires_approval($data['cart'], $employee_id)) {
+        if ($this->return_approval->requires_approval($data['cart'], $this->sale_lib->get_payments(), $employee_id)) {
             $return_approved_by = $this->approve_return_or_reload();
 
             if ($return_approved_by === null) {
@@ -1157,6 +1157,7 @@ class Sales extends Secure_Controller
         $data['cart'] = $this->sale_lib->get_cart();
         $data['return_approval_needed'] = $this->return_approval->requires_approval(
             $data['cart'],
+            $this->sale_lib->get_payments(),
             $this->employee->get_logged_in_employee_info()->person_id
         );
         $data['return_approval_needed_on_suspend'] = $this->return_approval->requires_approval_to_suspend(

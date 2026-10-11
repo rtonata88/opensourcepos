@@ -61,7 +61,7 @@ final class Return_approvalTest extends TestCase
 
         $approval = new Return_approval($employee);
 
-        $this->assertFalse($approval->requires_approval($this->cart([2]), 7));
+        $this->assertFalse($approval->requires_approval($this->cart([2]), [], 7));
     }
 
     public function testApprovalNeededForCashierWithoutPermission(): void
@@ -74,7 +74,7 @@ final class Return_approvalTest extends TestCase
 
         $approval = new Return_approval($employee);
 
-        $this->assertTrue($approval->requires_approval($this->cart([-1]), 7));
+        $this->assertTrue($approval->requires_approval($this->cart([-1]), [], 7));
     }
 
     public function testNoApprovalNeededForCashierWithPermission(): void
@@ -84,7 +84,61 @@ final class Return_approvalTest extends TestCase
 
         $approval = new Return_approval($employee);
 
-        $this->assertFalse($approval->requires_approval($this->cart([-1]), 7));
+        $this->assertFalse($approval->requires_approval($this->cart([-1]), [], 7));
+    }
+
+    public function testNegativeCashPaymentOnPositiveCartNeedsApproval(): void
+    {
+        $employee = $this->createMock(Employee::class);
+        $employee->expects($this->once())->method('has_grant')->with('sales_returns', 7)->willReturn(false);
+        $payments = [
+            'Cash' => ['payment_type' => 'Cash', 'payment_amount' => '-500.00'],
+            'Due'  => ['payment_type' => 'Due', 'payment_amount' => '501.00'],
+        ];
+
+        $approval = new Return_approval($employee);
+
+        $this->assertTrue($approval->requires_approval($this->cart([1]), $payments, 7));
+    }
+
+    public function testPositivePaymentsOnPositiveCartNeedNoApproval(): void
+    {
+        $employee = $this->createMock(Employee::class);
+        $employee->expects($this->never())->method('has_grant');
+        $payments = ['Cash' => ['payment_type' => 'Cash', 'payment_amount' => '5.00']];
+
+        $approval = new Return_approval($employee);
+
+        $this->assertFalse($approval->requires_approval($this->cart([1]), $payments, 7));
+    }
+
+    public function testNegativePaymentWithGrantNeedsNoApproval(): void
+    {
+        $employee = $this->createMock(Employee::class);
+        $employee->method('has_grant')->with('sales_returns', 7)->willReturn(true);
+        $payments = ['Cash' => ['payment_type' => 'Cash', 'payment_amount' => '-5.00']];
+
+        $approval = new Return_approval($employee);
+
+        $this->assertFalse($approval->requires_approval($this->cart([1]), $payments, 7));
+    }
+
+    public function testPaymentsPayOut(): void
+    {
+        $this->assertTrue(Return_approval::payments_pay_out([['payment_type' => 'Cash', 'payment_amount' => '-0.01']]));
+        $this->assertFalse(Return_approval::payments_pay_out([['payment_type' => 'Cash', 'payment_amount' => '0.00'], ['payment_type' => 'Due', 'payment_amount' => '3']]));
+        $this->assertFalse(Return_approval::payments_pay_out([]));
+    }
+
+    public function testNegativeCashAloneDoesNotRequireSuspendApproval(): void
+    {
+        $employee = $this->createMock(Employee::class);
+        $employee->expects($this->never())->method('has_grant');
+        $payments = ['Cash' => ['payment_type' => 'Cash', 'payment_amount' => '-5.00']];
+
+        $approval = new Return_approval($employee);
+
+        $this->assertFalse($approval->requires_approval_to_suspend($this->cart([1]), $payments, 7, ['Gift Card', 'Rewards']));
     }
 
     public function testValidSupervisorIsAccepted(): void

@@ -3,6 +3,7 @@
 namespace App\Database\Migrations;
 
 use CodeIgniter\Database\Migration;
+use RuntimeException;
 
 class Migration_SalesReturnsApproval extends Migration
 {
@@ -12,7 +13,9 @@ class Migration_SalesReturnsApproval extends Migration
     public function up(): void
     {
         helper('migration');
-        executeScriptWithTransaction(APPPATH . 'Database/Migrations/sqlscripts/3.4.3_sales_returns_approval.sql');
+        if (! executeScriptWithTransaction(APPPATH . 'Database/Migrations/sqlscripts/3.4.3_sales_returns_approval.sql')) {
+            throw new RuntimeException('Migration 3.4.3_sales_returns_approval.sql failed; see the log for details.');
+        }
     }
 
     /**
