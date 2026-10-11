@@ -109,6 +109,11 @@ A cart line is managed by the deal when all of:
 - the cashier has not changed its price or discount by hand. `Sale_lib::edit_item()` sets a line
   flag `deal_excluded = true` when the posted price or discount differs from the line's current
   values; quantity-only edits keep the line managed.
+- the item is not serialized (serialized items keep one line per serial number);
+- its price equals the item's unit price or the deal unit price (lines priced some other way, e.g. a
+  barcode price token, are left alone);
+- the deal is still cheaper than buying at the unit price (if the unit price was lowered after the
+  deal was set, the deal stops applying).
 
 ### 5. Where it runs
 
