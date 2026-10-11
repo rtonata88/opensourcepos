@@ -2,6 +2,7 @@
 
 namespace app\Libraries;
 
+use App\Libraries\Deal_pricing;
 use App\Models\Attribute;
 use App\Models\Customer;
 use App\Models\Dinner_table;
@@ -1030,13 +1031,18 @@ class Sale_lib
                 $maxkey = $item['line'];
             }
 
-            if ($item['item_id'] == $item_id && $item['item_location'] == $item_location) {    // TODO: === ?
+            // A price override (e.g. returning a whole sale) only merges into a line with the same price, as deals can give an item several lines
+            $same_price = $price_override === null || bccomp($this->plain_decimal($price_override), $this->plain_decimal($item['price']), 2) === 0;
+
+            if ($item['item_id'] == $item_id && $item['item_location'] == $item_location && $same_price) {    // TODO: === ?
                 $itemalreadyinsale = true;
                 $updatekey = $item['line'];
-                if (!$item_info->is_serialized) {
-                    $quantity = bcadd($quantity, $items[$updatekey]['quantity']);
-                }
             }
+        }
+
+        // Only the line that is updated (the last match) contributes its quantity; with multi-buy deals the same item can have several lines
+        if ($itemalreadyinsale && !$item_info->is_serialized) {
+            $quantity = bcadd($quantity, $items[$updatekey]['quantity']);
         }
 
         $insertkey = $maxkey + 1; // TODO: Does not follow naming conventions.
@@ -1097,7 +1103,8 @@ class Sale_lib
                     'stock_type'            => $stock_type,
                     'item_type'             => $item_type,
                     'hsn_code'              => $item_info->hsn_code,
-                    'tax_category_id'       => $item_info->tax_category_id
+                    'tax_category_id'       => $item_info->tax_category_id,
+                    'from_kit'              => $price_mode === PRICE_MODE_KIT,
                 ]
             ];
 
@@ -1191,6 +1198,12 @@ class Sale_lib
         $items = $this->get_cart();
         if (isset($items[$line])) {
             $line = &$items[$line];
+            if (
+                ($price !== null && bccomp($this->plain_decimal($price), $this->plain_decimal($line['price']), 2) !== 0)
+                || bccomp($this->plain_decimal($discount), $this->plain_decimal($line['discount']), 2) !== 0
+            ) {
+                $line['deal_excluded'] = true;
+            }
             if ($discounted_total != null && $discounted_total != $line['discounted_total']) {
                 // Note when entered the "discounted_total" is expected to be entered without a discount
                 $quantity = $this->get_quantity_sold($discounted_total, $price);
@@ -1211,6 +1224,70 @@ class Sale_lib
         }
 
         return false;    // TODO: This function will always return false.
+    }
+
+    /**
+     * Converts a number (possibly a float, empty string or exponent notation) to a plain decimal string safe for bcmath.
+     */
+    private function plain_decimal(mixed $value): string
+    {
+        if (is_string($value) && preg_match('/^-?\d+(\.\d+)?$/', $value) === 1) {
+            return $value;
+        }
+
+        if (!is_numeric($value)) {
+            return '0';
+        }
+
+        $formatted = number_format((float) $value, 6, '.', '');
+
+        return rtrim(rtrim($formatted, '0'), '.');
+    }
+
+    /**
+     * Re-prices cart lines of items that have a multi-buy deal. Does nothing in return mode.
+     */
+    public function apply_deals(): void
+    {
+        if ($this->is_return_mode()) {
+            return;
+        }
+
+        $cart = $this->get_cart();
+
+        if ($cart === []) {
+            return;
+        }
+
+        $deals = $this->item->get_deals(array_values(array_unique(array_map('intval', array_column($cart, 'item_id')))));
+
+        if ($deals === []) {
+            return;
+        }
+
+        foreach ($cart as &$line) {
+            $line['quantity'] = $this->plain_decimal($line['quantity']);
+            $line['price']    = $this->plain_decimal($line['price']);
+            $line['discount'] = $this->plain_decimal($line['discount']);
+        }
+        unset($line);
+
+        $cart = Deal_pricing::apply($cart, $deals);
+
+        foreach ($cart as &$line) {
+            if (isset($deals[$line['item_id']])) {
+                $quantity = (string) $line['quantity'];
+                $price = (string) $line['price'];
+                $discount = (string) $line['discount'];
+                $discount_type = (int) $line['discount_type'];
+
+                $line['total'] = $this->get_item_total($quantity, $price, $discount, $discount_type);
+                $line['discounted_total'] = $this->get_item_total($quantity, $price, $discount, $discount_type, true);
+            }
+        }
+        unset($line);
+
+        $this->set_cart($cart);
     }
 
     /**

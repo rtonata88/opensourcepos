@@ -650,6 +650,7 @@ class Sales extends Secure_Controller
         $data = [];
         $data['dinner_table'] = $this->sale_lib->get_dinner_table();
 
+        $this->sale_lib->apply_deals();
         $data['cart'] = $this->sale_lib->get_cart();
 
         $data['include_hsn'] = (bool)$this->config['include_hsn'];
@@ -1157,6 +1158,7 @@ class Sales extends Secure_Controller
         // cash_rounding indicates only that the site is configured for cash rounding
         $data['cash_rounding'] = $cash_rounding;
 
+        $this->sale_lib->apply_deals();
         $data['cart'] = $this->sale_lib->get_cart();
         $data['return_approval_needed'] = $this->return_approval->requires_approval(
             $data['cart'],
@@ -1555,6 +1557,7 @@ class Sales extends Secure_Controller
     {
         $sale_id = $this->sale_lib->get_sale_id();
         $dinner_table = $this->sale_lib->get_dinner_table();
+        $this->sale_lib->apply_deals();
         $cart = $this->sale_lib->get_cart();
         $payments = $this->sale_lib->get_payments();
         $employee_id = $this->employee->get_logged_in_employee_info()->person_id;
