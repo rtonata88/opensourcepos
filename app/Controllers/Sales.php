@@ -1476,6 +1476,14 @@ class Sales extends Secure_Controller
             ];
         }
 
+        $stored_payments = $this->sale->get_sale_payments($sale_id)->getResultArray();
+
+        if ($this->return_approval->requires_approval_to_edit($stored_payments, $sale_data['payments'] ?? [], $employee_id)) {
+            echo json_encode(['success' => false, 'message' => lang('Sales.return_approval_edit_denied'), 'id' => $sale_id]);
+
+            return;
+        }
+
         $inventory->update('POS ' . $sale_id, ['trans_date' => $sale_time]);    // TODO: Reflection Exception
         if ($this->sale->update($sale_id, $sale_data)) {
             echo json_encode(['success' => true, 'message' => lang('Sales.successfully_updated'), 'id' => $sale_id]);

@@ -114,6 +114,48 @@ class Return_approval
     }
 
     /**
+     * True when edits to a past sale's payments could pay money out: a new negative
+     * payment, a changed amount or refund on an existing payment, or a payment id
+     * that does not belong to the sale. Changing only the payment type is allowed.
+     *
+     * @param array $stored_payments rows from Sale::get_sale_payments()
+     * @param array $edited_payments payments built by Sales::postSave()
+     */
+    public static function payment_edits_pay_out(array $stored_payments, array $edited_payments): bool
+    {
+        $stored_by_id = array_column($stored_payments, null, 'payment_id');
+
+        foreach ($edited_payments as $payment) {
+            if ((int) $payment['payment_id'] === NEW_ENTRY) {
+                if ((float) $payment['payment_amount'] < 0) {
+                    return true;
+                }
+
+                continue;
+            }
+
+            $stored = $stored_by_id[$payment['payment_id']] ?? null;
+
+            if ($stored === null
+                || round((float) $payment['payment_amount'], 2) !== round((float) $stored['payment_amount'], 2)
+                || round((float) $payment['cash_refund'], 2) !== round((float) $stored['cash_refund'], 2)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * True when the employee may not save these edits to a past sale's payments.
+     */
+    public function requires_approval_to_edit(array $stored_payments, array $edited_payments, int $employee_id): bool
+    {
+        return self::payment_edits_pay_out($stored_payments, $edited_payments)
+            && ! $this->employee->has_grant(self::PERMISSION, $employee_id);
+    }
+
+    /**
      * Returns the approver's person_id when the credentials are valid and the
      * employee holds the returns permission, otherwise null.
      */

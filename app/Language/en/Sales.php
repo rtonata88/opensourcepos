@@ -167,6 +167,7 @@ return [
     "register"                         => "Sales Register",
     "remove_customer"                  => "Remove Customer",
     "remove_discount"                  => "",
+    "return_approval_edit_denied"      => "Only employees with Approve Returns can add negative payments or change payment amounts on a past sale.",
     "return_approval_invalid"          => "Approval failed: wrong username or password, or this user may not approve returns.",
     "return_approval_required"         => "This sale contains returned items and needs supervisor approval.",
     "return_approval_title"            => "Supervisor approval required",

@@ -340,4 +340,90 @@ final class Return_approvalTest extends TestCase
 
         $this->assertFalse(Return_approval::account_payments_pay_out($payments, ['Gift Card', 'Rewards']));
     }
+
+    private function storedPayments(): array
+    {
+        return [
+            ['payment_id' => '11', 'payment_type' => 'Cash', 'payment_amount' => '20.00', 'cash_refund' => '0.00'],
+        ];
+    }
+
+    private function editedPayment(int $id, string $type, string $amount, string $refund = '0.00'): array
+    {
+        return ['payment_id' => $id, 'payment_type' => $type, 'payment_amount' => $amount, 'cash_refund' => $refund, 'cash_adjustment' => 0, 'employee_id' => 3];
+    }
+
+    public function testUnchangedPaymentsDoNotPayOut(): void
+    {
+        $this->assertFalse(Return_approval::payment_edits_pay_out($this->storedPayments(), [$this->editedPayment(11, 'Cash', '20.00')]));
+    }
+
+    public function testChangingOnlyPaymentTypeDoesNotPayOut(): void
+    {
+        $this->assertFalse(Return_approval::payment_edits_pay_out($this->storedPayments(), [$this->editedPayment(11, 'Debit Card', '20')]));
+    }
+
+    public function testChangedAmountPaysOut(): void
+    {
+        $this->assertTrue(Return_approval::payment_edits_pay_out($this->storedPayments(), [$this->editedPayment(11, 'Cash', '5.00')]));
+    }
+
+    public function testChangedRefundPaysOut(): void
+    {
+        $this->assertTrue(Return_approval::payment_edits_pay_out($this->storedPayments(), [$this->editedPayment(11, 'Cash', '20.00', '15.00')]));
+    }
+
+    public function testZeroingAPaymentPaysOut(): void
+    {
+        $this->assertTrue(Return_approval::payment_edits_pay_out($this->storedPayments(), [$this->editedPayment(11, 'Cash', '0')]));
+    }
+
+    public function testNewNegativePaymentPaysOut(): void
+    {
+        $edited = [$this->editedPayment(11, 'Cash', '20.00'), $this->editedPayment(-1, 'Cash', '-50.00')];
+
+        $this->assertTrue(Return_approval::payment_edits_pay_out($this->storedPayments(), $edited));
+    }
+
+    public function testNewPositivePaymentDoesNotPayOut(): void
+    {
+        $edited = [$this->editedPayment(11, 'Cash', '20.00'), $this->editedPayment(-1, 'Cash', '5.00')];
+
+        $this->assertFalse(Return_approval::payment_edits_pay_out($this->storedPayments(), $edited));
+    }
+
+    public function testForeignPaymentIdPaysOut(): void
+    {
+        $this->assertTrue(Return_approval::payment_edits_pay_out($this->storedPayments(), [$this->editedPayment(99, 'Cash', '20.00')]));
+    }
+
+    public function testEditNeedsApprovalWithoutPermission(): void
+    {
+        $employee = $this->createMock(Employee::class);
+        $employee->expects($this->once())->method('has_grant')->with('sales_returns', 3)->willReturn(false);
+
+        $approval = new Return_approval($employee);
+
+        $this->assertTrue($approval->requires_approval_to_edit($this->storedPayments(), [$this->editedPayment(11, 'Cash', '5.00')], 3));
+    }
+
+    public function testEditAllowedWithPermission(): void
+    {
+        $employee = $this->createMock(Employee::class);
+        $employee->method('has_grant')->with('sales_returns', 1)->willReturn(true);
+
+        $approval = new Return_approval($employee);
+
+        $this->assertFalse($approval->requires_approval_to_edit($this->storedPayments(), [$this->editedPayment(11, 'Cash', '5.00')], 1));
+    }
+
+    public function testHarmlessEditSkipsGrantLookup(): void
+    {
+        $employee = $this->createMock(Employee::class);
+        $employee->expects($this->never())->method('has_grant');
+
+        $approval = new Return_approval($employee);
+
+        $this->assertFalse($approval->requires_approval_to_edit($this->storedPayments(), [$this->editedPayment(11, 'Debit Card', '20.00')], 3));
+    }
 }
