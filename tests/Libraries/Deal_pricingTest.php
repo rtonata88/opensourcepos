@@ -78,6 +78,19 @@ final class Deal_pricingTest extends TestCase
         $this->assertSame('Items.deal_price_cents', Deal_pricing::validate_deal('3', '10.00', '4.00'));
     }
 
+    public function testValidDealAcceptedWhenBcmathScaleIsSet(): void
+    {
+        // The app sets bcscale() globally (Load_config); bcmod() must not depend on it.
+        $previous = bcscale(4);
+
+        try {
+            $this->assertNull(Deal_pricing::validate_deal('2', '13', '7'));
+            $this->assertSame('Items.deal_price_cents', Deal_pricing::validate_deal('3', '10', '7'));
+        } finally {
+            bcscale($previous);
+        }
+    }
+
     public function testPriceWithInvalidFormatIsRejected(): void
     {
         $this->assertSame('Items.deal_price_invalid', Deal_pricing::validate_deal('2', '1e2', '7.00'));

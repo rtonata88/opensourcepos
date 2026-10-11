@@ -216,6 +216,39 @@
             </div>
         </div>
 
+        <div class="form-group form-group-sm">
+            <?= form_label(lang('Items.deal_quantity'), 'deal_quantity', ['class' => 'control-label col-xs-3']) ?>
+            <div class="col-xs-2">
+                <?= form_input([
+                    'name'  => 'deal_quantity',
+                    'id'    => 'deal_quantity',
+                    'class' => 'form-control input-sm',
+                    'value' => $item_info->deal_quantity ?? ''
+                ]) ?>
+            </div>
+        </div>
+
+        <div class="form-group form-group-sm">
+            <?= form_label(lang('Items.deal_price'), 'deal_price', ['class' => 'control-label col-xs-3']) ?>
+            <div class="col-xs-4">
+                <div class="input-group input-group-sm">
+                    <?php if (!is_right_side_currency_symbol()): ?>
+                        <span class="input-group-addon input-sm"><b><?= esc($config['currency_symbol']) ?></b></span>
+                    <?php endif; ?>
+                    <?= form_input([
+                        'name'  => 'deal_price',
+                        'id'    => 'deal_price',
+                        'class' => 'form-control input-sm',
+                        'value' => isset($item_info->deal_price) ? to_currency_no_money($item_info->deal_price) : ''
+                    ]) ?>
+                    <?php if (is_right_side_currency_symbol()): ?>
+                        <span class="input-group-addon input-sm"><b><?= esc($config['currency_symbol']) ?></b></span>
+                    <?php endif; ?>
+                </div>
+                <span class="help-block"><?= lang('Items.deal_help') ?></span>
+            </div>
+        </div>
+
         <?php if (!$use_destination_based_tax) { ?>
             <div class="form-group form-group-sm">
                 <?= form_label(lang('Items.tax_1'), 'tax_percent_1', ['class' => 'control-label col-xs-3']) ?>

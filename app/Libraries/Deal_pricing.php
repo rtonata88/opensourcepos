@@ -33,7 +33,7 @@ class Deal_pricing
             return 'Items.deal_price_invalid';
         }
 
-        if (bcmod(bcmul($price, '100', 0), $quantity) !== '0') {
+        if (bcmod(bcmul($price, '100', 0), $quantity, 0) !== '0') {
             return 'Items.deal_price_cents';
         }
 

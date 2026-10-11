@@ -3,6 +3,7 @@
 namespace App\Controllers;
 
 use App\Libraries\Barcode_lib;
+use App\Libraries\Deal_pricing;
 use App\Libraries\Item_lib;
 
 use App\Models\Attribute;
@@ -605,6 +606,20 @@ class Items extends Secure_Controller
 
         $cost_price = parse_decimals($this->request->getPost('cost_price'));
         $unit_price = parse_decimals($this->request->getPost('unit_price'));
+        $deal_quantity = trim((string) $this->request->getPost('deal_quantity'));
+        $deal_price_input = trim((string) $this->request->getPost('deal_price'));
+        $deal_price = $deal_price_input === '' ? '' : parse_decimals($deal_price_input);
+        $deal_error = Deal_pricing::validate_deal(
+            $deal_quantity,
+            $deal_price === false ? 'invalid' : (string) $deal_price,
+            $unit_price === false ? 'invalid' : (string) $unit_price
+        );
+
+        if ($deal_error !== null) {
+            echo json_encode(['success' => false, 'message' => lang($deal_error), 'id' => $item_id]);
+
+            return;
+        }
         $reorder_level = parse_quantity($this->request->getPost('reorder_level'));
         $qty_per_pack = parse_quantity($this->request->getPost('qty_per_pack') ?? '');
 
@@ -619,6 +634,8 @@ class Items extends Secure_Controller
             'item_number'           => empty($this->request->getPost('item_number')) ? null : $this->request->getPost('item_number'),
             'cost_price'            => $cost_price,
             'unit_price'            => $unit_price,
+            'deal_quantity'         => $deal_quantity === '' ? null : (int) $deal_quantity,
+            'deal_price'            => $deal_quantity === '' ? null : $deal_price,
             'reorder_level'         => $reorder_level,
             'receiving_quantity'    => $receiving_quantity,
             'allow_alt_description' => $this->request->getPost('allow_alt_description') != null,

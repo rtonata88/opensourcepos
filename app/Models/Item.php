@@ -40,7 +40,9 @@ class Item extends Model
         'qty_per_pack',
         'pack_name',
         'low_sell_item_id',
-        'hsn_code'
+        'hsn_code',
+        'deal_quantity',
+        'deal_price'
     ];
 
 
@@ -417,6 +419,35 @@ class Item extends Model
         $builder->groupBy('items.item_id');
 
         return $builder->get();
+    }
+
+    /**
+     * Gets the multi-buy deal settings of the given items that have a deal.
+     *
+     * @return array item_id => ['deal_quantity' => int, 'deal_price' => string, 'unit_price' => string]
+     */
+    public function get_deals(array $item_ids): array
+    {
+        if ($item_ids === []) {
+            return [];
+        }
+
+        $builder = $this->db->table('items');
+        $builder->select('item_id, deal_quantity, deal_price, unit_price');
+        $builder->whereIn('item_id', $item_ids);
+        $builder->where('deal_quantity IS NOT NULL');
+
+        $deals = [];
+
+        foreach ($builder->get()->getResultArray() as $row) {
+            $deals[(int) $row['item_id']] = [
+                'deal_quantity' => (int) $row['deal_quantity'],
+                'deal_price'    => (string) $row['deal_price'],
+                'unit_price'    => (string) $row['unit_price'],
+            ];
+        }
+
+        return $deals;
     }
 
     /**

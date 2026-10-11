@@ -1,0 +1,3 @@
+ALTER TABLE `ospos_items`
+  ADD COLUMN `deal_quantity` INT(10) NULL DEFAULT NULL,
+  ADD COLUMN `deal_price` DECIMAL(15,2) NULL DEFAULT NULL;
