@@ -37,6 +37,7 @@
  * @var float $non_cash_total
  * @var float $cash_amount_due
  * @var array $config
+ * @var bool $return_approval_needed
  */
 
 use App\Models\Employee;
@@ -491,6 +492,8 @@ helper('url');
             </div>
 
             <?= form_open("$controller_name/cancel", ['id' => 'buttons_form']) ?>
+            <?= form_hidden('approver_username', '') ?>
+            <?= form_hidden('approver_password', '') ?>
             <div class="form-group" id="buttons_sale">
                 <div class="btn btn-sm btn-default pull-left" id="suspend_sale_button"><span class="glyphicon glyphicon-align-justify">&nbsp;</span><?= lang(ucfirst($controller_name) . '.suspend_sale') ?></div>
                 <?php if (!$pos_mode && isset($customer)) { // Only show this part if the payment covers the total ?>
@@ -561,6 +564,32 @@ helper('url');
             }
         }
         ?>
+    </div>
+</div>
+
+<div class="modal fade" id="return_approval_modal" tabindex="-1" role="dialog" aria-labelledby="return_approval_label">
+    <div class="modal-dialog modal-sm" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal" aria-label="<?= lang('Common.close') ?>"><span aria-hidden="true">&times;</span></button>
+                <h4 class="modal-title" id="return_approval_label"><?= lang('Sales.return_approval_title') ?></h4>
+            </div>
+            <div class="modal-body">
+                <p><?= lang('Sales.return_approval_required') ?></p>
+                <div class="form-group">
+                    <label for="return_approver_username"><?= lang('Sales.approver_username') ?></label>
+                    <input type="text" class="form-control input-sm" id="return_approver_username" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label for="return_approver_password"><?= lang('Sales.approver_password') ?></label>
+                    <input type="password" class="form-control input-sm" id="return_approver_password" autocomplete="new-password">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default btn-sm" data-dismiss="modal"><?= lang('Common.close') ?></button>
+                <button type="button" class="btn btn-success btn-sm" id="return_approval_submit"><?= lang('Sales.approve') ?></button>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -727,14 +756,38 @@ helper('url');
             });
         });
 
-        $('#finish_sale_button').click(function() {
+        var return_approval_needed = <?= json_encode((bool) $return_approval_needed) ?>;
+
+        function submit_complete() {
             $('#buttons_form').attr('action', "<?= "$controller_name/complete" ?>");
             $('#buttons_form').submit();
+        }
+
+        function complete_or_request_approval() {
+            if (return_approval_needed) {
+                $('#return_approval_modal').modal('show');
+            } else {
+                submit_complete();
+            }
+        }
+
+        $('#finish_sale_button').click(complete_or_request_approval);
+        $('#finish_invoice_quote_button').click(complete_or_request_approval);
+
+        $('#return_approval_modal').on('shown.bs.modal', function() {
+            $('#return_approver_username').focus();
         });
 
-        $('#finish_invoice_quote_button').click(function() {
-            $('#buttons_form').attr('action', "<?= "$controller_name/complete" ?>");
-            $('#buttons_form').submit();
+        $('#return_approval_submit').click(function() {
+            $('#buttons_form input[name="approver_username"]').val($('#return_approver_username').val());
+            $('#buttons_form input[name="approver_password"]').val($('#return_approver_password').val());
+            submit_complete();
+        });
+
+        $('#return_approver_password').keypress(function(event) {
+            if (event.which == 13) {
+                $('#return_approval_submit').click();
+            }
         });
 
         $('#suspend_sale_button').click(function() {

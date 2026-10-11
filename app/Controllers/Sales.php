@@ -4,6 +4,7 @@ namespace App\Controllers;
 
 use App\Libraries\Barcode_lib;
 use App\Libraries\Email_lib;
+use App\Libraries\Return_approval;
 use App\Libraries\Sale_lib;
 use App\Libraries\Tax_lib;
 use App\Libraries\Token_lib;
@@ -30,6 +31,7 @@ class Sales extends Secure_Controller
     protected $helpers = ['file'];
     private Barcode_lib $barcode_lib;
     private Email_lib $email_lib;
+    private Return_approval $return_approval;
     private Sale_lib $sale_lib;
     private Tax_lib $tax_lib;
     private Token_lib $token_lib;
@@ -63,6 +65,7 @@ class Sales extends Secure_Controller
         $this->customer_rewards = model(Customer_rewards::class);
         $this->dinner_table = model(Dinner_table::class);
         $this->employee = model(Employee::class);
+        $this->return_approval = new Return_approval($this->employee);
     }
 
     /**
@@ -655,6 +658,22 @@ class Sales extends Secure_Controller
         $data['comments'] = $this->sale_lib->get_comment();
         $employee_id = $this->employee->get_logged_in_employee_info()->person_id;
         $employee_info = $this->employee->get_info($employee_id);
+
+        $return_approved_by = null;
+
+        if ($this->return_approval->requires_approval($data['cart'], $employee_id)) {
+            $approver_username = (string) $this->request->getPost('approver_username');
+            $approver_password = (string) $this->request->getPost('approver_password');
+            $return_approved_by = $this->return_approval->verify_approver($approver_username, $approver_password);
+
+            if ($return_approved_by === null) {
+                $error = trim($approver_username) === '' ? 'Sales.return_approval_required' : 'Sales.return_approval_invalid';
+                $this->_reload(['error' => lang($error)]);
+
+                return;
+            }
+        }
+
         $data['employee'] = $employee_info->first_name . ' ' . mb_substr($employee_info->last_name, 0, 1);
 
         $data['company_info'] = implode("\n", [$this->config['address'], $this->config['phone']]);
@@ -755,7 +774,7 @@ class Sales extends Secure_Controller
                 $invoice_view = $this->config['invoice_type'];
 
                 // Save the data to the sales table
-                $data['sale_id_num'] = $this->sale->save_value($sale_id, $data['sale_status'], $data['cart'], $customer_id, $employee_id, $data['comments'], $invoice_number, $work_order_number, $quote_number, $sale_type, $data['payments'], $data['dinner_table'], $tax_details);
+                $data['sale_id_num'] = $this->sale->save_value($sale_id, $data['sale_status'], $data['cart'], $customer_id, $employee_id, $data['comments'], $invoice_number, $work_order_number, $quote_number, $sale_type, $data['payments'], $data['dinner_table'], $tax_details, $return_approved_by);
                 $data['sale_id'] = 'POS ' . $data['sale_id_num'];
 
                 // Resort and filter cart lines for printing
@@ -792,7 +811,7 @@ class Sales extends Secure_Controller
                 $data['sale_status'] = SUSPENDED;
                 $sale_type = SALE_TYPE_WORK_ORDER;
 
-                $data['sale_id_num'] = $this->sale->save_value($sale_id, $data['sale_status'], $data['cart'], $customer_id, $employee_id, $data['comments'], $invoice_number, $work_order_number, $quote_number, $sale_type, $data['payments'], $data['dinner_table'], $tax_details);
+                $data['sale_id_num'] = $this->sale->save_value($sale_id, $data['sale_status'], $data['cart'], $customer_id, $employee_id, $data['comments'], $invoice_number, $work_order_number, $quote_number, $sale_type, $data['payments'], $data['dinner_table'], $tax_details, $return_approved_by);
                 $this->sale_lib->set_suspended_id($data['sale_id_num']);
 
                 $data['cart'] = $this->sale_lib->sort_and_filter_cart($data['cart']);
@@ -821,7 +840,7 @@ class Sales extends Secure_Controller
                 $data['sale_status'] = SUSPENDED;
                 $sale_type = SALE_TYPE_QUOTE;
 
-                $data['sale_id_num'] = $this->sale->save_value($sale_id, $data['sale_status'], $data['cart'], $customer_id, $employee_id, $data['comments'], $invoice_number, $work_order_number, $quote_number, $sale_type, $data['payments'], $data['dinner_table'], $tax_details);
+                $data['sale_id_num'] = $this->sale->save_value($sale_id, $data['sale_status'], $data['cart'], $customer_id, $employee_id, $data['comments'], $invoice_number, $work_order_number, $quote_number, $sale_type, $data['payments'], $data['dinner_table'], $tax_details, $return_approved_by);
                 $this->sale_lib->set_suspended_id($data['sale_id_num']);
 
                 $data['cart'] = $this->sale_lib->sort_and_filter_cart($data['cart']);
@@ -840,7 +859,7 @@ class Sales extends Secure_Controller
                 $sale_type = SALE_TYPE_POS;
             }
 
-            $data['sale_id_num'] = $this->sale->save_value($sale_id, $data['sale_status'], $data['cart'], $customer_id, $employee_id, $data['comments'], $invoice_number, $work_order_number, $quote_number, $sale_type, $data['payments'], $data['dinner_table'], $tax_details);
+            $data['sale_id_num'] = $this->sale->save_value($sale_id, $data['sale_status'], $data['cart'], $customer_id, $employee_id, $data['comments'], $invoice_number, $work_order_number, $quote_number, $sale_type, $data['payments'], $data['dinner_table'], $tax_details, $return_approved_by);
 
             $data['sale_id'] = 'POS ' . $data['sale_id_num'];
 
@@ -1123,6 +1142,10 @@ class Sales extends Secure_Controller
         $data['cash_rounding'] = $cash_rounding;
 
         $data['cart'] = $this->sale_lib->get_cart();
+        $data['return_approval_needed'] = $this->return_approval->requires_approval(
+            $data['cart'],
+            $this->employee->get_logged_in_employee_info()->person_id
+        );
         $customer_info = $this->_load_customer_data($this->sale_lib->get_customer(), $data, true);
 
         $data['modes'] = $this->sale_lib->get_register_mode_options();
