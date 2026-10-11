@@ -23,6 +23,7 @@
  * @var float $payments_total
  * @var float $amount_due
  * @var bool $payments_cover_total
+ * @var bool $complete_after_payment
  * @var array $payment_options
  * @var array $selected_payment_type
  * @var bool $pos_mode
@@ -782,6 +783,10 @@ helper('url');
         $('#finish_sale_button').click(complete_or_request_approval);
         $('#finish_invoice_quote_button').click(complete_or_request_approval);
 
+        if (<?= json_encode(!empty($complete_after_payment) && $payments_cover_total) ?>) {
+            click_complete_button();
+        }
+
         $('#suspend_sale_button').click(function() {
             request_approval_or_submit(return_approval_needed_on_suspend, "<?= site_url("$controller_name/suspend") ?>");
         });
@@ -874,6 +879,15 @@ helper('url');
         });
     });
 
+    // Presses whichever Complete button the register is showing, so approval rules still apply
+    function click_complete_button() {
+        if ($('#finish_sale_button').length) {
+            $('#finish_sale_button').click();
+        } else if ($('#finish_invoice_quote_button').length) {
+            $('#finish_invoice_quote_button').click();
+        }
+    }
+
     function check_payment_type() {
         var cash_mode = <?= json_encode($cash_mode) ?>;
 
@@ -942,8 +956,12 @@ helper('url');
                 $("#add_payment_button").click();
                 break;
             case 55: // Alt + 7 Add Payment and Complete Sales/Invoice
-                $("#add_payment_button").click();
-                window.location.href = "<?= 'sales/complete' ?>";
+                if ($("#add_payment_button").length) {
+                    $("#add_payment_form").append('<input type="hidden" name="complete_after_payment" value="1">');
+                    $("#add_payment_button").click();
+                } else {
+                    click_complete_button();
+                }
                 break;
             case 56: // Alt + 8 Finish Quote/Invoice without payment
                 $("#finish_invoice_quote_button").click();

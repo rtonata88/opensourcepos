@@ -458,6 +458,9 @@ class Sales extends Secure_Controller
             }
         }
 
+        // Alt + 7 asks for the sale to be completed once this payment has been added
+        $data['complete_after_payment'] = !isset($data['error']) && $this->request->getPost('complete_after_payment') === '1';
+
         $this->_reload($data);
     }
 
