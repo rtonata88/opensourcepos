@@ -148,11 +148,15 @@ strings before bcmath is used, and `apply_deals()` always passes explicit scales
 - **Stock:** unchanged — both lines are the same item.
 - **Taxes / receipts / invoices / reports:** unchanged — two ordinary lines.
 - **Supervisor return approval:** deal lines are positive; no effect.
-- **Suspend → unsuspend:** `copy_entire_sale()` re-adds stored lines; `apply_deals()` re-splits
-  them to the same result.
+- **Suspend → unsuspend:** `copy_entire_sale()` re-adds stored lines. Restored lines with a non-zero
+  discount are flagged `deal_excluded`, so a restored sale keeps the exact discounted lines it was saved
+  with, and while restoring, lines of a deal item with different discounts are kept separate instead of
+  merged. Undiscounted lines stay managed and `apply_deals()` re-splits them to the same result. The
+  add_item merge rules (skipping excluded/kit lines, separate discounts) apply only to items that have a deal.
 - **Receipt-based returns:** Return mode → deals skipped → receipt prices kept.
 - **Customer discount applied later** (`apply_customer_discount()`): applies to all lines; the next
-  `apply_deals()` resets deal lines to discount 0.
+  `apply_deals()` moves it to the normal line and resets deal lines to discount 0, unless that discount makes
+  the deal dearer than no deal, in which case the item falls back to no-deal pricing (never worse than no deal).
 
 ## Testing
 

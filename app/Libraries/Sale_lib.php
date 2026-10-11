@@ -25,6 +25,7 @@ use ReflectionException;
 class Sale_lib
 {
     private Attribute $attribute;
+    private ?int $last_added_line = null;
     private Customer $customer;
     private Dinner_table $dinner_table;
     private Item $item;
@@ -1023,8 +1024,11 @@ class Sale_lib
         $insertkey = 0;                // Key to use for new entry.     // TODO: $insertkey is never used
         $updatekey = 0;                // Key to use to update(quantity)
 
+        // Multi-buy deal rules for merging only apply to items that have a deal
+        $has_deal = $this->item->get_deals([(int) $item_info->item_id]) !== [];
+
         // When restoring a sale (price override), lines of a deal item with different discounts stay separate
-        $separate_discounts = $price_override !== null && $this->item->get_deals([(int) $item_info->item_id]) !== [];
+        $separate_discounts = $price_override !== null && $has_deal;
 
         foreach ($items as $item) {
             // We primed the loop so maxkey is 0 the first time.
@@ -1038,7 +1042,7 @@ class Sale_lib
             $same_price = $price_override === null || bccomp($this->plain_decimal($price_override), $this->plain_decimal($item['price']), 2) === 0;
 
             // Without a price override, lines the deal skips (excluded or from a kit) are not merge targets, so the scan can still earn the deal
-            $mergeable = $price_override !== null || (empty($item['deal_excluded']) && empty($item['from_kit']));
+            $mergeable = $price_override !== null || !$has_deal || (empty($item['deal_excluded']) && empty($item['from_kit']));
 
             if ($separate_discounts && bccomp($this->plain_decimal($discount), $this->plain_decimal($item['discount']), 2) !== 0) {
                 $mergeable = false;
@@ -1056,6 +1060,7 @@ class Sale_lib
         }
 
         $insertkey = $maxkey + 1; // TODO: Does not follow naming conventions.
+        $this->last_added_line = $itemalreadyinsale && !$item_info->is_serialized ? $updatekey : $insertkey;
         // Array/cart records are identified by $insertkey and item_id is just another field.
 
         if ($price_mode == PRICE_MODE_KIT) {    // TODO: === ?
@@ -1332,6 +1337,7 @@ class Sale_lib
         $this->remove_customer();
 
         foreach ($this->sale->get_sale_items_ordered($sale_id)->getResult() as $row) {
+            $this->last_added_line = null;
             $this->add_item($row->item_id, $row->item_location, -$row->quantity_purchased, $row->discount, $row->discount_type, PRICE_MODE_STANDARD, null, null, $row->item_unit_price, $row->description, $row->serialnumber, null, true);
         }
 
@@ -1382,17 +1388,9 @@ class Sale_lib
             // A restored sale keeps the exact discounted lines it was saved with, so multi-buy deals leave them alone
             if (bccomp($this->plain_decimal($row->discount), '0', 2) !== 0) {
                 $cart = $this->get_cart();
-                $target = null;
 
-                foreach ($cart as $key => $line) {
-                    if ($line['item_id'] == $row->item_id && $line['item_location'] == $row->item_location
-                        && bccomp($this->plain_decimal($line['price']), $this->plain_decimal($row->item_unit_price), 2) === 0) {
-                        $target = $key;
-                    }
-                }
-
-                if ($target !== null) {
-                    $cart[$target]['deal_excluded'] = true;
+                if ($this->last_added_line !== null && isset($cart[$this->last_added_line])) {
+                    $cart[$this->last_added_line]['deal_excluded'] = true;
                     $this->set_cart($cart);
                 }
             }
