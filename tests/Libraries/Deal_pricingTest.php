@@ -78,6 +78,19 @@ final class Deal_pricingTest extends TestCase
         $this->assertSame('Items.deal_price_cents', Deal_pricing::validate_deal('3', '10.00', '4.00'));
     }
 
+    public function testPriceWithInvalidFormatIsRejected(): void
+    {
+        $this->assertSame('Items.deal_price_invalid', Deal_pricing::validate_deal('2', '1e2', '7.00'));
+        $this->assertSame('Items.deal_price_invalid', Deal_pricing::validate_deal('2', ' 13', '7.00'));
+        $this->assertSame('Items.deal_price_invalid', Deal_pricing::validate_deal('2', '13 ', '7.00'));
+        $this->assertSame('Items.deal_price_invalid', Deal_pricing::validate_deal('2', '13.00', '7.00 '));
+    }
+
+    public function testPriceTruncationCheckedWithBcmath(): void
+    {
+        $this->assertSame('Items.deal_price_cents', Deal_pricing::validate_deal('5', '10.01', '3.00'));
+    }
+
     public function testValidDealIsAccepted(): void
     {
         $this->assertNull(Deal_pricing::validate_deal('2', '13.00', '7.00'));
@@ -147,6 +160,20 @@ final class Deal_pricingTest extends TestCase
         $this->assertSame([1, 2], array_keys($cart));
         $this->assertSame(2.0, (float) $cart[1]['quantity']);
         $this->assertSame(1.0, (float) $cart[2]['quantity']);
+        $this->assertSame(20.0, $this->total($cart));
+    }
+
+    public function testThreeScansAreConsolidated(): void
+    {
+        $cart = $this->line(1, self::MILK, '1', '7.00') + $this->line(2, self::MILK, '1', '6.50') + $this->line(3, self::MILK, '1', '7.00');
+
+        $cart = Deal_pricing::apply($cart, $this->deals());
+
+        $this->assertSame([1, 2], array_keys($cart));
+        $this->assertSame(2.0, (float) $cart[1]['quantity']);
+        $this->assertSame('6.50', $cart[1]['price']);
+        $this->assertSame(1.0, (float) $cart[2]['quantity']);
+        $this->assertSame('7.00', $cart[2]['price']);
         $this->assertSame(20.0, $this->total($cart));
     }
 

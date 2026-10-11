@@ -27,13 +27,13 @@ class Deal_pricing
             return 'Items.deal_quantity_invalid';
         }
 
-        if (! is_numeric($price) || ! is_numeric($unit_price)
-                                 || bccomp($price, '0', 2) <= 0
-                                 || bccomp($price, bcmul($quantity, $unit_price, 2), 2) >= 0) {
+        if (! preg_match('/^\d+(\.\d{1,2})?$/', $price) || ! preg_match('/^\d+(\.\d{1,2})?$/', $unit_price)
+                                                        || bccomp($price, '0', 2) <= 0
+                                                        || bccomp($price, bcmul($quantity, $unit_price, 2), 2) >= 0) {
             return 'Items.deal_price_invalid';
         }
 
-        if ((int) round((float) $price * 100) % (int) $quantity !== 0) {
+        if (bcmod(bcmul($price, '100', 0), $quantity) !== '0') {
             return 'Items.deal_price_cents';
         }
 
