@@ -495,22 +495,32 @@ class Employee extends Person
     }
 
     /**
-     * Attempts to log in employee and set session. Returns boolean based on outcome.
+     * Checks an employee's username and password without touching the session.
+     *
+     * @return int|null person_id of the matching, non-deleted employee, or null
      */
-    public function check_password(string $username, string $password): bool
+    public function verify_credentials(string $username, string $password): ?int
     {
         $builder = $this->db->table('employees');
-        $query = $builder->getWhere(['username' => $username, 'deleted' => 0], 1);
+        $query   = $builder->getWhere(['username' => $username, 'deleted' => 0], 1);
 
-        if ($query->getNumRows() == 1) {    // TODO: ===
+        if ($query->getNumRows() === 1) {
             $row = $query->getRow();
 
             if (password_verify($password, $row->password)) {
-                return true;
+                return (int) $row->person_id;
             }
         }
 
-        return false;
+        return null;
+    }
+
+    /**
+     * Checks an employee's username and password. Does not set the session.
+     */
+    public function check_password(string $username, string $password): bool
+    {
+        return $this->verify_credentials($username, $password) !== null;
     }
 
     /**
