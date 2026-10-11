@@ -165,6 +165,7 @@ return [
     "remove_customer"                  => "Remove Customer",
     "remove_discount"                  => "",
     "return"                           => "Return",
+    "returns"                          => "Approve Returns",
     "rewards"                          => "Reward Points",
     "rewards_balance"                  => "Reward Points Balance",
     "sale"                             => "Sale",
