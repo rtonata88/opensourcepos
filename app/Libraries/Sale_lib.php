@@ -1034,7 +1034,10 @@ class Sale_lib
             // A price override (e.g. returning a whole sale) only merges into a line with the same price, as deals can give an item several lines
             $same_price = $price_override === null || bccomp($this->plain_decimal($price_override), $this->plain_decimal($item['price']), 2) === 0;
 
-            if ($item['item_id'] == $item_id && $item['item_location'] == $item_location && $same_price) {    // TODO: === ?
+            // Without a price override, lines the deal skips (excluded or from a kit) are not merge targets, so the scan can still earn the deal
+            $mergeable = $price_override !== null || (empty($item['deal_excluded']) && empty($item['from_kit']));
+
+            if ($item['item_id'] == $item_id && $item['item_location'] == $item_location && $same_price && $mergeable) {    // TODO: === ?
                 $itemalreadyinsale = true;
                 $updatekey = $item['line'];
             }

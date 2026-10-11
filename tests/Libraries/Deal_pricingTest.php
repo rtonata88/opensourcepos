@@ -291,4 +291,106 @@ final class Deal_pricingTest extends TestCase
         $this->assertSame('3.00', $cart[1]['price']);
         $this->assertSame(4, $cart[4]['line']);
     }
+
+    // never worse than no deal
+
+    public function testLargePercentDiscountKeepsNoDealPricing(): void
+    {
+        $cart = $this->line(1, self::MILK, '2', '7.00', ['discount' => '10', 'discount_type' => PERCENT]);
+
+        $cart = Deal_pricing::apply($cart, $this->deals());
+
+        $this->assertSame([1], array_keys($cart));
+        $this->assertSame('2', (string) (float) $cart[1]['quantity']);
+        $this->assertSame('7.00', $cart[1]['price']);
+        $this->assertSame(10.0, (float) $cart[1]['discount']);
+        $this->assertArrayNotHasKey('deal_normal_discount', $cart[1]);
+        $this->assertSame('12.60', Deal_pricing::discounted_total('2', '7.00', '10', PERCENT));
+    }
+
+    public function testSmallPercentDiscountStillUsesDeal(): void
+    {
+        $cart = $this->line(1, self::MILK, '2', '7.00', ['discount' => '5', 'discount_type' => PERCENT]);
+
+        $cart = Deal_pricing::apply($cart, $this->deals());
+
+        $this->assertSame('6.50', $cart[1]['price']);
+        $this->assertSame(2.0, (float) $cart[1]['quantity']);
+    }
+
+    public function testFixedDiscountKeepsNoDealPricing(): void
+    {
+        $cart = $this->line(1, self::MILK, '2', '7.00', ['discount' => '1.00', 'discount_type' => FIXED]);
+
+        $cart = Deal_pricing::apply($cart, $this->deals());
+
+        $this->assertSame([1], array_keys($cart));
+        $this->assertSame('7.00', $cart[1]['price']);
+        $this->assertSame(1.0, (float) $cart[1]['discount']);
+        $this->assertSame(FIXED, $cart[1]['discount_type']);
+    }
+
+    public function testLargePercentDiscountOnThreeKeepsNoDealPricing(): void
+    {
+        $cart = $this->line(1, self::MILK, '3', '7.00', ['discount' => '10', 'discount_type' => PERCENT]);
+
+        $cart = Deal_pricing::apply($cart, $this->deals());
+
+        $this->assertSame([1], array_keys($cart));
+        $this->assertSame('7.00', $cart[1]['price']);
+        $this->assertSame(3.0, (float) $cart[1]['quantity']);
+    }
+
+    public function testNoDealFallbackDropsOtherManagedLines(): void
+    {
+        $cart = $this->line(1, self::MILK, '2', '6.50') + $this->line(2, self::MILK, '1', '7.00', ['discount' => '10', 'discount_type' => PERCENT]);
+
+        $cart = Deal_pricing::apply($cart, $this->deals());
+
+        $this->assertSame([1], array_keys($cart));
+        $this->assertSame(3.0, (float) $cart[1]['quantity']);
+        $this->assertSame('7.00', $cart[1]['price']);
+    }
+
+    public function testApplyIsIdempotent(): void
+    {
+        foreach ([['10', PERCENT, '2'], ['5', PERCENT, '3'], ['1.00', FIXED, '2'], ['0', PERCENT, '3'], ['10', PERCENT, '3']] as [$discount, $type, $quantity]) {
+            $cart  = $this->line(1, self::MILK, $quantity, '7.00', ['discount' => $discount, 'discount_type' => $type]);
+            $once  = Deal_pricing::apply($cart, $this->deals());
+            $twice = Deal_pricing::apply($once, $this->deals());
+
+            $this->assertSame($once, $twice, "discount {$discount} type {$type} qty {$quantity}");
+        }
+    }
+
+    public function testDiscountedTotalMirrorsRegister(): void
+    {
+        $this->assertSame('18.90', Deal_pricing::discounted_total('3', '7.00', '10', PERCENT));
+        $this->assertSame('12.00', Deal_pricing::discounted_total('2', '7.00', '1.00', FIXED));
+        $this->assertSame('14.00', Deal_pricing::discounted_total('2', '7.00', '0', PERCENT));
+    }
+
+    // grouping by location
+
+    public function testLinesAtDifferentLocationsAreDealtSeparately(): void
+    {
+        $cart = $this->line(1, self::MILK, '2', '7.00', ['item_location' => 1]) + $this->line(2, self::MILK, '2', '7.00', ['item_location' => 2]);
+
+        $cart = Deal_pricing::apply($cart, $this->deals());
+
+        $this->assertSame([1, 2], array_keys($cart));
+        $this->assertSame('6.50', $cart[1]['price']);
+        $this->assertSame(1, $cart[1]['item_location']);
+        $this->assertSame('6.50', $cart[2]['price']);
+        $this->assertSame(2, $cart[2]['item_location']);
+    }
+
+    // quantity upper bound
+
+    public function testDealQuantityUpperBound(): void
+    {
+        $this->assertNull(Deal_pricing::validate_deal('1000', '10.00', '7.00'));
+        $this->assertSame('Items.deal_quantity_invalid', Deal_pricing::validate_deal('1001', '1.00', '7.00'));
+        $this->assertSame('Items.deal_quantity_invalid', Deal_pricing::validate_deal('3000000000', '1.00', '7.00'));
+    }
 }

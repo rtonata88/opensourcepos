@@ -34,7 +34,8 @@ The deal repeats for every full group of N; leftovers are charged at the normal 
 - Returns refund what was paid: receipt-based returns keep the receipt's line prices; hand-typed
   returns in Return mode use the normal price. Deals never apply in Return mode.
 - Deal lines carry no discount: the deal price is final. The normal line keeps whatever discount
-  the item would otherwise get (e.g. a customer discount).
+  the item would otherwise get (e.g. a customer discount), unless that discount makes no-deal
+  cheaper, in which case no-deal pricing is used (never worse than no deal).
 
 ### Non-goals
 
@@ -75,8 +76,9 @@ with an en message):
 - `round(price × 100)` must be divisible by quantity → `Items.deal_price_cents`
   ("The deal price must divide into whole cents per item, e.g. 2 for 13.00 = 6.50 each.").
 
-The pure checks live in `Deal_pricing::validate_deal(?string $quantity, ?string $price, string $unit_price): ?string`
-(returns the error language key or null) so they are unit-testable.
+The quantity must also be at most 1000 (`Items.deal_quantity_invalid`) so it fits the INT column.
+The pure checks live in `Deal_pricing::validate_deal(string $quantity, string $price, string $unit_price): ?string`
+(non-nullable strings, empty string meaning blank; returns the error language key or null) so they are unit-testable.
 
 ### 3. Pricing library — `App\Libraries\Deal_pricing`
 
@@ -86,17 +88,26 @@ Pure functions, no DB or session access:
 - `split_quantity(string $quantity, int $deal_quantity): array` → `['deal' => string, 'normal' => string]`.
   `deal` = floor(quantity ÷ N) × N, `normal` = quantity − deal. Fractional quantities: only whole
   groups count; the fractional remainder goes to `normal`. Quantities ≤ 0 → all `normal`.
-- `apply(array $cart, array $deals, callable $next_line): array` — `$deals` maps item_id →
-  `['deal_quantity' => int, 'deal_price' => string, 'unit_price' => string]`. For each item_id
-  in `$deals`, the *managed* lines of that item (see §4) are replaced by at most two lines: a deal
-  line (deal quantity, deal unit price, discount 0) and a normal line (remaining quantity, normal
-  unit price, the normal discount — taken from the first managed line that had a non-deal price, else 0).
-  Lines keep item_id, location, description, serial number and print option of the first managed line.
-  Zero-quantity lines are dropped. `apply()` only sets quantity, price, discount and discount_type on
-  the lines it builds; `Sale_lib::apply_deals()` then recomputes `total` and `discounted_total` for every
-  line with its existing `get_item_total()`, so the formula stays in one place. Unmanaged lines
-  and items without a deal are untouched. Line order is kept stable (new lines take the position
-  of the first managed line). `$next_line` supplies new line keys.
+- `discounted_total(string $quantity, string $price, string $discount, int $discount_type): string` —
+  mirrors `Sale_lib::get_item_total(..., true)` / `get_item_discount()`: percent is quantity × price × discount / 100,
+  fixed is quantity × discount, the discount rounded to 2 dp.
+- `apply(array $cart, array $deals): array` — `$deals` maps item_id →
+  `['deal_quantity' => int, 'deal_price' => string, 'unit_price' => string]`. Managed lines (see §4)
+  are grouped by item and location (so stock is taken from the right location). Each group is
+  replaced by at most two lines: a deal line (deal quantity, deal unit price, discount 0) and a normal
+  line (remaining quantity, normal unit price, the normal discount). The normal discount is the first
+  non-zero discount among the group's managed lines, else the `deal_normal_discount` stored on a deal line,
+  else 0. The deal line stores it as `deal_normal_discount`/`deal_normal_discount_type` so it survives
+  re-application. Lines keep item_id, location, description, serial number and print option of the first
+  managed line; new line keys come from the highest cart key + 1. Lines with quantity <= 0 are not
+  managed and are left untouched. `apply()` only sets quantity, price, discount and discount_type;
+  `Sale_lib::apply_deals()` then recomputes `total` and `discounted_total` with `get_item_total()`.
+  Unmanaged lines and items without a deal are untouched; line order is kept stable.
+- **Never worse than no deal.** For each group, the baseline is all managed quantity at the unit price with the
+  normal discount; the deal result is the deal line plus the normal line. If the deal result's discounted total
+  is greater than the baseline (compared at 2 dp), the group becomes a single no-deal line at the unit
+  price with the normal discount (first managed key reused, other managed lines dropped, no
+  `deal_normal_discount`). The output is idempotent: applying again gives the same lines.
 
 ### 4. Which lines are managed
 
@@ -125,8 +136,12 @@ Called from `Sales::_reload()` before the cart is read (every register action en
 `_reload`), and at the start of `Sales::postComplete()` and `Sales::postSuspend()` so a sale is
 never saved with stale deal lines.
 
-`add_item()`'s existing merge-by-item_id behaviour is kept: merged quantity lands on one line and
-`apply_deals()` re-splits it.
+`add_item()` still merges a scan into the last matching line (same item and location) and
+`apply_deals()` re-splits it, with these rules: with a price override the target must also have the same price;
+without one, lines flagged `deal_excluded` or `from_kit` are never the merge target, so the scan goes to
+another matching line or a new line and still earns the deal. Cart numbers read back from the session
+(floats, empty strings, exponent notation) are normalised by `Sale_lib::plain_decimal()` to plain decimal
+strings before bcmath is used, and `apply_deals()` always passes explicit scales to bc functions.
 
 ### 6. Interactions
 

@@ -23,7 +23,7 @@ class Deal_pricing
             return 'Items.deal_both_required';
         }
 
-        if (! ctype_digit($quantity) || (int) $quantity < 2) {
+        if (! ctype_digit($quantity) || strlen($quantity) > 4 || (int) $quantity < 2 || (int) $quantity > 1000) {
             return 'Items.deal_quantity_invalid';
         }
 
@@ -79,7 +79,7 @@ class Deal_pricing
             $deal = $deals[$line['item_id']] ?? null;
 
             if ($deal !== null && self::is_managed($line, $deal)) {
-                $managed[$line['item_id']][] = $key;
+                $managed[self::group_key($line)][] = $key;
             }
         }
 
@@ -91,7 +91,7 @@ class Deal_pricing
         $result   = [];
 
         foreach ($cart as $key => $line) {
-            $keys = $managed[$line['item_id']] ?? [];
+            $keys = $managed[self::group_key($line)] ?? [];
 
             if (! in_array($key, $keys, true)) {
                 $result[$key] = $line;
@@ -130,6 +130,24 @@ class Deal_pricing
             }
 
             $normal_discount ??= '0';
+
+            // Never worse than no deal: keep plain pricing when the discount outweighs the deal's saving
+            $baseline    = self::discounted_total($quantity, $deal['unit_price'], $normal_discount, (int) $normal_discount_type);
+            $deal_result = self::deal_result_total($quantity, $deal, $normal_discount, (int) $normal_discount_type);
+
+            if (bccomp($deal_result, $baseline, 2) > 0) {
+                $result[$key] = array_merge($line, [
+                    'line'          => $key,
+                    'quantity'      => $quantity,
+                    'price'         => $deal['unit_price'],
+                    'discount'      => $normal_discount,
+                    'discount_type' => $normal_discount_type,
+                ]);
+                unset($result[$key]['deal_normal_discount'], $result[$key]['deal_normal_discount_type']);
+
+                continue;
+            }
+
             $split      = self::split_quantity($quantity, $deal['deal_quantity']);
             $has_deal   = bccomp($split['deal'], '0', 3) > 0;
             $has_normal = bccomp($split['normal'], '0', 3) > 0;
@@ -159,6 +177,44 @@ class Deal_pricing
         }
 
         return $result;
+    }
+
+    /**
+     * Line total after discount, mirroring Sale_lib::get_item_total() with the discount included.
+     */
+    public static function discounted_total(string $quantity, string $price, string $discount, int $discount_type): string
+    {
+        $total = bcmul($quantity, $price, 6);
+
+        if ($discount_type === PERCENT) {
+            $discount_amount = bcmul($total, bcdiv($discount, '100', 6), 6);
+        } else {
+            $discount_amount = bcmul($quantity, $discount, 6);
+        }
+
+        $discount_amount = (string) round((float) $discount_amount, 2, PHP_ROUND_HALF_UP);
+
+        return bcsub($total, $discount_amount, 2);
+    }
+
+    /**
+     * Discounted total of the deal line plus the normal line that apply() would produce.
+     */
+    private static function deal_result_total(string $quantity, array $deal, string $normal_discount, int $normal_discount_type): string
+    {
+        $split = self::split_quantity($quantity, $deal['deal_quantity']);
+        $total = bcmul($split['deal'], self::deal_unit_price($deal['deal_quantity'], $deal['deal_price']), 2);
+
+        if (bccomp($split['normal'], '0', 3) > 0) {
+            $total = bcadd($total, self::discounted_total($split['normal'], $deal['unit_price'], $normal_discount, $normal_discount_type), 2);
+        }
+
+        return $total;
+    }
+
+    private static function group_key(array $line): string
+    {
+        return $line['item_id'] . '|' . ($line['item_location'] ?? 0);
     }
 
     /**
