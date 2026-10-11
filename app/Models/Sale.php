@@ -535,16 +535,16 @@ class Sale extends Model
         }
 
         $sales_data = [
-            'sale_time'         => date('Y-m-d H:i:s'),
-            'customer_id'       => $customer->exists($customer_id) ? $customer_id : null,
-            'employee_id'       => $employee_id,
-            'comment'           => $comment,
-            'sale_status'       => $sale_status,
-            'invoice_number'    => $invoice_number,
-            'quote_number'      => $quote_number,
-            'work_order_number' => $work_order_number,
-            'dinner_table_id'   => $dinner_table_id,
-            'sale_type'         => $sale_type,
+            'sale_time'          => date('Y-m-d H:i:s'),
+            'customer_id'        => $customer->exists($customer_id) ? $customer_id : null,
+            'employee_id'        => $employee_id,
+            'comment'            => $comment,
+            'sale_status'        => $sale_status,
+            'invoice_number'     => $invoice_number,
+            'quote_number'       => $quote_number,
+            'work_order_number'  => $work_order_number,
+            'dinner_table_id'    => $dinner_table_id,
+            'sale_type'          => $sale_type,
             'return_approved_by' => $return_approved_by,
         ];
 
