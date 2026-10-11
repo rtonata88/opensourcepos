@@ -737,9 +737,10 @@ class Sales extends Secure_Controller
             } else {
                 $payment = [
                     lang('Sales.cash') => [
-                        'payment_type'   => lang('Sales.cash'),
-                        'payment_amount' => 0,
-                        'cash_refund'    => $data['amount_change']
+                        'payment_type'    => lang('Sales.cash'),
+                        'payment_amount'  => 0,
+                        'cash_refund'     => $data['amount_change'],
+                        'cash_adjustment' => CASH_ADJUSTMENT_FALSE,
                     ]
                 ];
 
