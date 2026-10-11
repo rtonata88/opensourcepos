@@ -153,4 +153,80 @@ final class Return_approvalTest extends TestCase
 
         $this->assertNull($approval->verify_approver('boss', ''));
     }
+
+    public function testNegativeLineTotalIsAReturn(): void
+    {
+        $cart = [1 => ['item_id' => 1, 'line' => 1, 'quantity' => 1, 'discounted_total' => '-5.00']];
+
+        $this->assertTrue(Return_approval::cart_has_returns($cart));
+    }
+
+    public function testDiscountAbovePriceIsAReturn(): void
+    {
+        // 150% discount on a 10.00 item: total -5.00
+        $cart = [1 => ['item_id' => 1, 'line' => 1, 'quantity' => 1, 'discounted_total' => '-5.00']];
+
+        $this->assertTrue(Return_approval::cart_has_returns($cart));
+    }
+
+    public function testPositiveLineTotalIsNotAReturn(): void
+    {
+        $cart = [1 => ['item_id' => 1, 'line' => 1, 'quantity' => 2, 'discounted_total' => '18.00']];
+
+        $this->assertFalse(Return_approval::cart_has_returns($cart));
+    }
+
+    public function testGiftcardPaymentCreditsAnAccount(): void
+    {
+        $payments = ['Gift Card:1001' => ['payment_type' => 'Gift Card:1001', 'payment_amount' => '-5.00']];
+
+        $this->assertTrue(Return_approval::payments_credit_accounts($payments, ['Gift Card', 'Rewards']));
+    }
+
+    public function testRewardsPaymentCreditsAnAccount(): void
+    {
+        $payments = ['Rewards' => ['payment_type' => 'Rewards', 'payment_amount' => '-5.00']];
+
+        $this->assertTrue(Return_approval::payments_credit_accounts($payments, ['Gift Card', 'Rewards']));
+    }
+
+    public function testCashPaymentDoesNotCreditAnAccount(): void
+    {
+        $payments = ['Cash' => ['payment_type' => 'Cash', 'payment_amount' => '-5.00']];
+
+        $this->assertFalse(Return_approval::payments_credit_accounts($payments, ['Gift Card', 'Rewards']));
+    }
+
+    public function testSuspendNeedsApprovalForReturnPaidToGiftcard(): void
+    {
+        $employee = $this->createMock(Employee::class);
+        $employee->method('has_grant')->with('sales_returns', 7)->willReturn(false);
+        $payments = ['Gift Card:1001' => ['payment_type' => 'Gift Card:1001', 'payment_amount' => '-5.00']];
+
+        $approval = new Return_approval($employee);
+
+        $this->assertTrue($approval->requires_approval_to_suspend($this->cart([-1]), $payments, 7, ['Gift Card', 'Rewards']));
+    }
+
+    public function testSuspendWithoutAccountPaymentNeedsNoApproval(): void
+    {
+        $employee = $this->createMock(Employee::class);
+        $employee->expects($this->never())->method('has_grant');
+        $payments = ['Cash' => ['payment_type' => 'Cash', 'payment_amount' => '-5.00']];
+
+        $approval = new Return_approval($employee);
+
+        $this->assertFalse($approval->requires_approval_to_suspend($this->cart([-1]), $payments, 7, ['Gift Card', 'Rewards']));
+    }
+
+    public function testSuspendWithGiftcardButNoReturnsNeedsNoApproval(): void
+    {
+        $employee = $this->createMock(Employee::class);
+        $employee->expects($this->never())->method('has_grant');
+        $payments = ['Gift Card:1001' => ['payment_type' => 'Gift Card:1001', 'payment_amount' => '5.00']];
+
+        $approval = new Return_approval($employee);
+
+        $this->assertFalse($approval->requires_approval_to_suspend($this->cart([1]), $payments, 7, ['Gift Card', 'Rewards']));
+    }
 }

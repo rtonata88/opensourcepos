@@ -662,14 +662,9 @@ class Sales extends Secure_Controller
         $return_approved_by = null;
 
         if ($this->return_approval->requires_approval($data['cart'], $employee_id)) {
-            $approver_username = (string) $this->request->getPost('approver_username');
-            $approver_password = (string) $this->request->getPost('approver_password');
-            $return_approved_by = $this->return_approval->verify_approver($approver_username, $approver_password);
+            $return_approved_by = $this->approve_return_or_reload();
 
             if ($return_approved_by === null) {
-                $error = trim($approver_username) === '' ? 'Sales.return_approval_required' : 'Sales.return_approval_invalid';
-                $this->_reload(['error' => lang($error)]);
-
                 return;
             }
         }
@@ -1125,6 +1120,24 @@ class Sales extends Secure_Controller
     }
 
     /**
+     * Verifies the supervisor credentials posted with the register form.
+     * On failure reloads the register with an error and returns null.
+     */
+    private function approve_return_or_reload(): ?int
+    {
+        $approver_username = (string) $this->request->getPost('approver_username');
+        $approver_password = (string) $this->request->getPost('approver_password');
+        $approver_id       = $this->return_approval->verify_approver($approver_username, $approver_password);
+
+        if ($approver_id === null) {
+            $error = trim($approver_username) === '' ? 'Sales.return_approval_required' : 'Sales.return_approval_invalid';
+            $this->_reload(['error' => lang($error)]);
+        }
+
+        return $approver_id;
+    }
+
+    /**
      * @param array $data
      * @return void
      */
@@ -1145,6 +1158,12 @@ class Sales extends Secure_Controller
         $data['return_approval_needed'] = $this->return_approval->requires_approval(
             $data['cart'],
             $this->employee->get_logged_in_employee_info()->person_id
+        );
+        $data['return_approval_needed_on_suspend'] = $this->return_approval->requires_approval_to_suspend(
+            $data['cart'],
+            $this->sale_lib->get_payments(),
+            $this->employee->get_logged_in_employee_info()->person_id,
+            [lang('Sales.giftcard'), lang('Sales.rewards')]
         );
         $customer_info = $this->_load_customer_data($this->sale_lib->get_customer(), $data, true);
 
@@ -1527,6 +1546,17 @@ class Sales extends Secure_Controller
         $cart = $this->sale_lib->get_cart();
         $payments = $this->sale_lib->get_payments();
         $employee_id = $this->employee->get_logged_in_employee_info()->person_id;
+
+        $return_approved_by = null;
+
+        if ($this->return_approval->requires_approval_to_suspend($cart, $payments, $employee_id, [lang('Sales.giftcard'), lang('Sales.rewards')])) {
+            $return_approved_by = $this->approve_return_or_reload();
+
+            if ($return_approved_by === null) {
+                return;
+            }
+        }
+
         $customer_id = $this->sale_lib->get_customer();
         $invoice_number = $this->sale_lib->get_invoice_number();
         $work_order_number = $this->sale_lib->get_work_order_number();
@@ -1543,7 +1573,7 @@ class Sales extends Secure_Controller
         $data = [];
         $sales_taxes = [[], []];
 
-        if ($this->sale->save_value($sale_id, $sale_status, $cart, $customer_id, $employee_id, $comment, $invoice_number, $work_order_number, $quote_number, $sale_type, $payments, $dinner_table, $sales_taxes) == '-1') {
+        if ($this->sale->save_value($sale_id, $sale_status, $cart, $customer_id, $employee_id, $comment, $invoice_number, $work_order_number, $quote_number, $sale_type, $payments, $dinner_table, $sales_taxes, $return_approved_by) == '-1') {
             $data['error'] = lang('Sales.unsuccessfully_suspended_sale');
         } else {
             $data['success'] = lang('Sales.successfully_suspended_sale');

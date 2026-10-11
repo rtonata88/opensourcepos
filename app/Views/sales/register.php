@@ -38,6 +38,7 @@
  * @var float $cash_amount_due
  * @var array $config
  * @var bool $return_approval_needed
+ * @var bool $return_approval_needed_on_suspend
  */
 
 use App\Models\Employee;
@@ -757,22 +758,33 @@ helper('url');
         });
 
         var return_approval_needed = <?= json_encode((bool) $return_approval_needed) ?>;
+        var return_approval_needed_on_suspend = <?= json_encode((bool) $return_approval_needed_on_suspend) ?>;
+        var approval_action = '';
 
-        function submit_complete() {
-            $('#buttons_form').attr('action', "<?= "$controller_name/complete" ?>");
+        function submit_register_action(action) {
+            $('#buttons_form').attr('action', action);
             $('#buttons_form').submit();
         }
 
-        function complete_or_request_approval() {
-            if (return_approval_needed) {
+        function request_approval_or_submit(needed, action) {
+            if (needed) {
+                approval_action = action;
                 $('#return_approval_modal').modal('show');
             } else {
-                submit_complete();
+                submit_register_action(action);
             }
+        }
+
+        function complete_or_request_approval() {
+            request_approval_or_submit(return_approval_needed, "<?= "$controller_name/complete" ?>");
         }
 
         $('#finish_sale_button').click(complete_or_request_approval);
         $('#finish_invoice_quote_button').click(complete_or_request_approval);
+
+        $('#suspend_sale_button').click(function() {
+            request_approval_or_submit(return_approval_needed_on_suspend, "<?= site_url("$controller_name/suspend") ?>");
+        });
 
         $('#return_approval_modal').on('shown.bs.modal', function() {
             $('#return_approver_username').focus();
@@ -781,18 +793,13 @@ helper('url');
         $('#return_approval_submit').click(function() {
             $('#buttons_form input[name="approver_username"]').val($('#return_approver_username').val());
             $('#buttons_form input[name="approver_password"]').val($('#return_approver_password').val());
-            submit_complete();
+            submit_register_action(approval_action);
         });
 
         $('#return_approver_password').keypress(function(event) {
             if (event.which == 13) {
                 $('#return_approval_submit').click();
             }
-        });
-
-        $('#suspend_sale_button').click(function() {
-            $('#buttons_form').attr('action', "<?= site_url("$controller_name/suspend") ?>");
-            $('#buttons_form').submit();
         });
 
         $('#cancel_sale_button').click(function() {
